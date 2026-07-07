@@ -1,1 +1,59 @@
 # portable-editor
+
+Editor de texto minimalista para devs. Un archivo a la vez, liviano y al punto: syntax highlighting para ~150 lenguajes, temas, números de línea y una única fuente monoespaciada. Funciona en Linux y macOS.
+
+Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) y [CodeMirror 6](https://codemirror.net) como motor de edición.
+
+## Features
+
+- **Highlighting automático** por extensión de archivo, con carga lazy del lenguaje (`@codemirror/language-data`)
+- **4 temas**: One Dark, Nord, Paper y Solarized Light (persistido entre sesiones)
+- **Números de línea**, línea activa resaltada, plegado de código, autocierre de brackets
+- **Búsqueda integrada** (panel de CodeMirror)
+- **Fuente única** monoespaciada (Consolas / SF Mono / Menlo según plataforma), tamaño ajustable
+- **Indicador de cambios sin guardar** con confirmación al cerrar, abrir o crear archivo
+- **Apertura por CLI**: `portable-editor archivo.txt`
+
+## Atajos
+
+| Atajo (⌘ en macOS, Ctrl en Linux) | Acción              |
+| --------------------------------- | ------------------- |
+| `Mod + O`                         | Abrir archivo       |
+| `Mod + S`                         | Guardar             |
+| `Mod + Shift + S`                 | Guardar como        |
+| `Mod + N`                         | Nuevo archivo       |
+| `Mod + F`                         | Buscar / reemplazar |
+| `Mod + Z` / `Mod + Shift + Z`     | Deshacer / rehacer  |
+| `Mod + =` / `Mod + -` / `Mod + 0` | Tamaño de fuente    |
+
+## Requisitos
+
+- [Node.js](https://nodejs.org) 18+
+- [Rust](https://rustup.rs) (toolchain estable)
+- Linux: dependencias de sistema de Tauri (`webkit2gtk`, ver [docs](https://tauri.app/start/prerequisites/#linux))
+
+## Desarrollo
+
+```sh
+npm install
+npm run tauri dev
+```
+
+## Build de producción
+
+```sh
+npm run tauri build
+```
+
+Los binarios quedan en `src-tauri/target/release/bundle/` (`.app`/`.dmg` en macOS, `.deb`/`.rpm`/`.AppImage` en Linux).
+
+## Estructura
+
+```
+src/            # Frontend (TypeScript + CodeMirror 6)
+  main.ts       #   Estado del documento, atajos, wiring UI
+  editor.ts     #   Editor encapsulado (temas y lenguaje via Compartments)
+  themes.ts     #   Registro de temas
+src-tauri/      # Backend nativo (Rust)
+  src/lib.rs    #   Comandos: read_file, write_file, cli_file
+```

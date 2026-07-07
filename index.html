@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>portable-editor</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body data-dark="true">
+    <main id="app">
+      <div id="editor"></div>
+      <footer id="statusbar">
+        <span id="file-name">sin título</span>
+        <span id="file-dirty" hidden>●</span>
+        <span class="spacer"></span>
+        <span id="cursor-pos">Ln 1, Col 1</span>
+        <span id="language">Texto plano</span>
+        <select id="theme-select" title="Tema del editor"></select>
+      </footer>
+    </main>
+  </body>
+</html>

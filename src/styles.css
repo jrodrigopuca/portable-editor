@@ -1,0 +1,82 @@
+:root {
+  /* Fuente única del editor: Consolas primero, con equivalentes por plataforma */
+  --editor-font: Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", "Liberation Mono", monospace;
+  --editor-font-size: 14px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+  font-family: var(--editor-font);
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+}
+
+#editor {
+  flex: 1;
+  min-height: 0;
+}
+
+#editor .cm-editor {
+  height: 100%;
+}
+
+#statusbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 12px;
+  font-size: 12px;
+  border-top: 1px solid;
+  user-select: none;
+  white-space: nowrap;
+}
+
+#statusbar .spacer {
+  flex: 1;
+}
+
+#file-dirty {
+  color: #e5c07b;
+  margin-left: -8px;
+}
+
+#theme-select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+  cursor: pointer;
+}
+
+body[data-dark="true"] #statusbar {
+  background: #21252b;
+  color: #9da5b4;
+  border-color: #181a1f;
+}
+
+body[data-dark="true"] #theme-select option {
+  background: #21252b;
+}
+
+body[data-dark="false"] #statusbar {
+  background: #f6f8fa;
+  color: #57606a;
+  border-color: #d0d7de;
+}
