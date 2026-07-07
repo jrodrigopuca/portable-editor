@@ -36,7 +36,7 @@
           "rb", "php", "sh", "zsh", "bash", "sql", "lua", "vim", "csv"
         ],
         "name": "Text and source files",
-        "description": "Archivos de texto y código fuente",
+        "description": "Plain text and source code files",
         "role": "Editor"
       }
     ],

@@ -13,6 +13,12 @@ Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) 
 - **Fuente única** monoespaciada (Consolas / SF Mono / Menlo según plataforma), tamaño ajustable
 - **Indicador de cambios sin guardar** con confirmación al cerrar, abrir o crear archivo
 - **Cuatro formas de abrir un archivo**: botón/atajo en la interfaz, drag & drop a la ventana, "Abrir con..." del sistema (asociaciones de archivo) y por terminal
+- **Detección de cambios externos**: si el archivo cambia en disco (un `git checkout`, otro editor), se recarga solo — y si tenés cambios sin guardar, te pregunta
+- **Guardado atómico**: escribe a un temporal y renombra (POSIX), un corte a mitad de guardado nunca corrompe el archivo
+- **Word wrap** conmutables con `Alt+Z` o desde la status bar
+- **Instancia única**: abrir otro archivo por terminal reutiliza la ventana existente
+- **Archivos recientes** y restauración de sesión: reabre el último archivo en la misma línea y columna
+- **Multi-cursor** (`Alt+click`) y selección de siguiente ocurrencia (`Mod+D`), de fábrica con CodeMirror
 
 ## Atajos
 
@@ -25,12 +31,14 @@ Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) 
 | `Mod + F`                         | Buscar / reemplazar |
 | `Mod + Z` / `Mod + Shift + Z`     | Deshacer / rehacer  |
 | `Mod + =` / `Mod + -` / `Mod + 0` | Tamaño de fuente    |
+| `Mod + D`                         | Seleccionar siguiente ocurrencia |
+| `Alt + Z`                         | Word wrap on/off    |
 
 ## Abrir archivos
 
 | Vía                  | Cómo                                                                     |
 | -------------------- | ------------------------------------------------------------------------ |
-| Interfaz             | Botón **Abrir** en la status bar o `Mod+O`                                |
+| Interfaz             | Botón **Open** en la status bar o `Mod+O`                                 |
 | Drag & drop          | Arrastrá el archivo a la ventana                                          |
 | "Abrir con..."       | Asociaciones registradas al instalar el bundle (extensiones de código)    |
 | Terminal             | `portable-editor archivo.txt`                                             |
@@ -68,9 +76,18 @@ Los binarios quedan en `src-tauri/target/release/bundle/` (`.app`/`.dmg` en macO
 
 ```
 src/            # Frontend (TypeScript + CodeMirror 6)
-  main.ts       #   Estado del documento, atajos, wiring UI
-  editor.ts     #   Editor encapsulado (temas y lenguaje via Compartments)
+  main.ts       #   Estado del documento, atajos, recientes, wiring UI
+  editor.ts     #   Editor encapsulado (temas, lenguaje y wrap via Compartments)
   themes.ts     #   Registro de temas
 src-tauri/      # Backend nativo (Rust)
-  src/lib.rs    #   Comandos: read_file, write_file, cli_file
+  src/lib.rs    #   Comandos IPC, single-instance, evento Opened de macOS
+docs/           # Documentación de mantenimiento
 ```
+
+## Documentación
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitectura, superficie IPC, flujos, decisiones, invariantes y trampas conocidas. **Lectura obligada antes de tocar código.**
+- [`docs/RELEASE.md`](docs/RELEASE.md) — cómo generar los ejecutables (local y CI) y publicarlos en GitHub Releases.
+- [`CLAUDE.md`](CLAUDE.md) — guía operativa para agentes AI y devs: convenciones, comandos, mapa rápido e invariantes.
+
+Convención de idiomas: código, comentarios y UI en inglés; documentación en español.

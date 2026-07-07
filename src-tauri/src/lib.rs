@@ -1,24 +1,55 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::UNIX_EPOCH;
 
-/// Archivo recibido vía "Abrir con..." del sistema (evento Opened de macOS)
-/// antes de que el frontend esté listo para escucharlo.
+/// File received via the OS "Open with..." (macOS Opened event) before the
+/// frontend is ready to listen for it.
 struct PendingFile(Mutex<Option<String>>);
 
-/// Lee el archivo completo como texto UTF-8.
+/// Reads the whole file as UTF-8 text.
 #[tauri::command]
 fn read_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("No se pudo leer {path}: {e}"))
+    std::fs::read_to_string(&path).map_err(|e| format!("Could not read {path}: {e}"))
 }
 
-/// Escribe el contenido al archivo (crea el archivo si no existe).
+/// Atomic write: temp file in the same directory + rename (atomic on POSIX),
+/// so a crash mid-write never leaves the file corrupted.
 #[tauri::command]
 fn write_file(path: String, contents: String) -> Result<(), String> {
-    std::fs::write(&path, contents).map_err(|e| format!("No se pudo guardar {path}: {e}"))
+    let target = PathBuf::from(&path);
+    let tmp = tmp_path(&target);
+    std::fs::write(&tmp, &contents).map_err(|e| format!("Could not save {path}: {e}"))?;
+    if let Ok(meta) = std::fs::metadata(&target) {
+        let _ = std::fs::set_permissions(&tmp, meta.permissions());
+    }
+    std::fs::rename(&tmp, &target).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Could not save {path}: {e}")
+    })
 }
 
-/// Archivo a abrir al arrancar: primero lo que llegó por "Abrir con..." del
-/// sistema, si no el primer argumento de CLI (`portable-editor archivo.txt`).
+fn tmp_path(target: &Path) -> PathBuf {
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    target.with_file_name(format!(".{name}.portable-editor.tmp"))
+}
+
+/// Mtime in milliseconds; the frontend polls it to detect external changes.
+#[tauri::command]
+fn file_mtime(path: String) -> Result<u64, String> {
+    let modified = std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .map_err(|e| e.to_string())?;
+    Ok(modified
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis() as u64)
+}
+
+/// File to open on startup: whatever arrived via the OS "Open with..." first,
+/// otherwise the first CLI argument (`portable-editor file.txt`).
 #[tauri::command]
 fn startup_file(pending: tauri::State<PendingFile>) -> Option<String> {
     if let Some(path) = pending.0.lock().unwrap().take() {
@@ -37,14 +68,33 @@ fn startup_file(pending: tauri::State<PendingFile>) -> Option<String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Must be registered before any other plugin: a second invocation
+        // focuses the existing window and forwards its file argument.
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            use tauri::{Emitter, Manager};
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+            if let Some(arg) = args.into_iter().nth(1).filter(|a| !a.starts_with('-')) {
+                if let Ok(path) = Path::new(&cwd).join(arg).canonicalize() {
+                    let _ = app.emit("open-file", path.to_string_lossy().into_owned());
+                }
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .manage(PendingFile(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![read_file, write_file, startup_file])
+        .invoke_handler(tauri::generate_handler![
+            read_file,
+            write_file,
+            file_mtime,
+            startup_file
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // En macOS, "Abrir con..." no llega por argv sino como evento nativo,
-            // tanto al arrancar como con la app ya corriendo.
+            // On macOS, "Open with..." does not arrive via argv but as a native
+            // event, both at startup and while the app is already running.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
                 use tauri::{Emitter, Manager};

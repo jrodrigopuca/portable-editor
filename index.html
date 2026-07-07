@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -11,16 +11,18 @@
     <main id="app">
       <div id="editor"></div>
       <footer id="statusbar">
-        <button id="btn-new" title="Nuevo archivo (⌘/Ctrl+N)">Nuevo</button>
-        <button id="btn-open" title="Abrir archivo (⌘/Ctrl+O)">Abrir</button>
-        <button id="btn-save" title="Guardar (⌘/Ctrl+S)">Guardar</button>
+        <button id="btn-new" title="New file (⌘/Ctrl+N)">New</button>
+        <button id="btn-open" title="Open file (⌘/Ctrl+O)">Open</button>
+        <button id="btn-save" title="Save (⌘/Ctrl+S)">Save</button>
+        <select id="recent-select" title="Recent files" hidden></select>
         <span class="separator"></span>
-        <span id="file-name">sin título</span>
+        <span id="file-name">untitled</span>
         <span id="file-dirty" hidden>●</span>
         <span class="spacer"></span>
+        <button id="btn-wrap" title="Line wrapping (Alt+Z)">Wrap: off</button>
         <span id="cursor-pos">Ln 1, Col 1</span>
-        <span id="language">Texto plano</span>
-        <select id="theme-select" title="Tema del editor"></select>
+        <span id="language">Plain text</span>
+        <select id="theme-select" title="Editor theme"></select>
       </footer>
     </main>
   </body>
