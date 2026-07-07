@@ -10,11 +10,11 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 | Robustez                 | 🟡     | Guardado atómico y cambios externos ✔; encodings y archivos enormes ✘   |
 | Arquitectura             | 🟢     | Capas claras, IPC mínimo, módulos con responsabilidad única              |
 | Documentación            | 🟢     | README, ARCHITECTURE, RELEASE, CLAUDE.md — por encima de la media        |
-| Tests automatizados      | 🔴     | **Cero.** La única red es `tsc --noEmit` y prueba manual                 |
-| CI de calidad            | 🔴     | Solo existe el workflow de release; nada valida push/PR                  |
-| Lint/format              | 🔴     | Sin ESLint/Prettier/clippy/rustfmt configurados                          |
-| Distribución             | 🟡     | Workflow de release escrito pero nunca ejecutado; íconos por defecto     |
-| Legal/comunidad          | 🔴     | **Sin LICENSE** (blocker para publicar), sin CHANGELOG ni CONTRIBUTING   |
+| Tests automatizados      | 🟡     | Lógica pura con Vitest (22 tests); sin E2E todavía (smoke test manual)   |
+| CI de calidad            | 🟢     | Biome, tsc, Vitest, rustfmt y clippy en cada push/PR                     |
+| Lint/format              | 🟢     | Biome (frontend) + rustfmt/clippy (backend)                              |
+| Distribución             | 🟡     | Íconos propios ✔; workflow de release pendiente de primera ejecución    |
+| Legal/comunidad          | 🟢     | Apache-2.0 + NOTICE, CHANGELOG, CONTRIBUTING, templates de issues        |
 
 **Veredicto: prototipo avanzado (pre-alpha).** Core funcional y bien documentado, sin red de seguridad. La prioridad no es agregar features: es que lo que existe no se pueda romper sin que algo grite.
 
@@ -29,7 +29,7 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 
 ---
 
-## 2. Fase 1 — Red de seguridad (antes que cualquier feature)
+## 2. Fase 1 — Red de seguridad (antes que cualquier feature) ✅ 2026-07-07
 
 **Objetivo:** que un cambio roto no pueda llegar a `main` sin ser detectado.
 
@@ -47,7 +47,7 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 
 ---
 
-## 3. Fase 2 — Primer release público (v0.1.0)
+## 3. Fase 2 — Primer release público (v0.1.0) — en curso
 
 **Objetivo:** artefactos instalables por terceros, proceso de release ejercitado de punta a punta.
 
