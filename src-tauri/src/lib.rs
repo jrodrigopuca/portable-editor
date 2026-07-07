@@ -98,7 +98,10 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
                 use tauri::{Emitter, Manager};
-                if let Some(path) = urls.into_iter().filter_map(|u| u.to_file_path().ok()).next()
+                if let Some(path) = urls
+                    .into_iter()
+                    .filter_map(|u| u.to_file_path().ok())
+                    .next()
                 {
                     let path = path.to_string_lossy().into_owned();
                     *app.state::<PendingFile>().0.lock().unwrap() = Some(path.clone());

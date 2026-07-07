@@ -4,6 +4,7 @@ import { languages } from "@codemirror/language-data";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
+import { basename } from "./paths";
 import { DEFAULT_THEME_ID, themeById } from "./themes";
 
 export interface EditorCallbacks {
@@ -102,7 +103,7 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks): E
 
     detectLanguage: async (path) => {
       const token = ++languageToken;
-      const filename = path?.split("/").pop() ?? "";
+      const filename = path === null ? "" : basename(path);
       const description =
         filename === "" ? null : LanguageDescription.matchFilename(languages, filename);
 

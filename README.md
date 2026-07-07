@@ -88,6 +88,23 @@ docs/           # Documentación de mantenimiento
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitectura, superficie IPC, flujos, decisiones, invariantes y trampas conocidas. **Lectura obligada antes de tocar código.**
 - [`docs/RELEASE.md`](docs/RELEASE.md) — cómo generar los ejecutables (local y CI) y publicarlos en GitHub Releases.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — diagnóstico de madurez y plan de evolución por fases, con criterios de salida.
+- [`docs/SMOKE-TEST.md`](docs/SMOKE-TEST.md) — checklist manual pre-release.
+- [`CHANGELOG.md`](CHANGELOG.md) — historial de cambios (Keep a Changelog).
 - [`CLAUDE.md`](CLAUDE.md) — guía operativa para agentes AI y devs: convenciones, comandos, mapa rápido e invariantes.
 
 Convención de idiomas: código, comentarios y UI en inglés; documentación en español.
+
+## Desarrollo local
+
+```sh
+npm run lint        # Biome: lint + format
+npm run typecheck   # tsc --noEmit
+npm run test        # Vitest
+```
+
+CI corre lint, typecheck, tests, `cargo fmt --check` y clippy en cada push/PR.
+
+## Licencia
+
+[Apache-2.0](LICENSE). Podés usar, modificar y redistribuir (incluso comercialmente), pero toda redistribución debe conservar el aviso de copyright y el archivo [NOTICE](NOTICE), y marcar los archivos modificados. Ver la licencia para el detalle.

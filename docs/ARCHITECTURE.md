@@ -135,6 +135,8 @@ Para agregar un tema:
 
 ## Verificación
 
-- TypeScript: `npx tsc --noEmit` (obligatorio antes de dar por bueno un cambio de TS).
-- Rust: compila con la primera corrida de `npm run tauri dev` (la corre el usuario/dev, no el agente).
-- No hay tests automatizados todavía; si agregás lógica pura (p. ej. parsing de recientes), es buen candidato para extraer y testear con Vitest.
+- Frontend: `npm run lint` (Biome), `npm run typecheck` (tsc) y `npm run test` (Vitest) — los tres en verde antes de dar por bueno un cambio.
+- Rust: `cargo fmt` local; `cargo clippy -- -D warnings` corre en CI (compila, así que localmente lo corre el dev cuando quiere).
+- CI (`.github/workflows/ci.yml`): todo lo anterior en cada push/PR a main. El workflow de release es aparte (`release.yml`).
+- La lógica pura testeable vive separada del wiring: `src/recent.ts`, `src/prefs.ts`, `src/paths.ts` (sin DOM ni Tauri) con sus `*.test.ts` al lado. `main.ts` solo orquesta.
+- Smoke test manual pre-release: `docs/SMOKE-TEST.md`.

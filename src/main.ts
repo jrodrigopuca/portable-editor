@@ -4,6 +4,16 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { createEditor } from "./editor";
+import { basename } from "./paths";
+import { clampFontSize, FONT_DEFAULT, parseFontSize } from "./prefs";
+import {
+  addRecent,
+  parseRecent,
+  RECENT_MAX,
+  type RecentEntry,
+  removeRecent,
+  withCursor,
+} from "./recent";
 import { DEFAULT_THEME_ID, THEMES, themeById } from "./themes";
 
 const APP_NAME = "portable-editor";
@@ -11,10 +21,6 @@ const THEME_KEY = "portable-editor:theme";
 const FONT_KEY = "portable-editor:font-size";
 const WRAP_KEY = "portable-editor:wrap";
 const RECENT_KEY = "portable-editor:recent";
-const FONT_DEFAULT = 14;
-const FONT_MIN = 9;
-const FONT_MAX = 28;
-const RECENT_MAX = 8;
 const MTIME_POLL_MS = 2000;
 
 const appWindow = getCurrentWindow();
@@ -45,15 +51,9 @@ interface DocState {
   mtime: number | null;
 }
 
-interface RecentEntry {
-  path: string;
-  line: number;
-  col: number;
-}
-
 const doc: DocState = { path: null, dirty: false, mtime: null };
 const lastCursor = { line: 1, col: 1 };
-let fontSize = readStoredFont();
+let fontSize = parseFontSize(localStorage.getItem(FONT_KEY));
 let wrapOn = localStorage.getItem(WRAP_KEY) === "true";
 
 const editor = createEditor(el.editor, {
@@ -69,10 +69,6 @@ const editor = createEditor(el.editor, {
     el.cursorPos.textContent = `Ln ${line}, Col ${col}`;
   },
 });
-
-function basename(path: string): string {
-  return path.split("/").pop() ?? path;
-}
 
 function fileLabel(): string {
   return doc.path === null ? "untitled" : basename(doc.path);
@@ -94,53 +90,29 @@ async function confirmDiscard(): Promise<boolean> {
   return ask("You have unsaved changes. Discard them?", { title: APP_NAME, kind: "warning" });
 }
 
-// ---------- Recent files ----------
-
-function isRecentEntry(value: unknown): value is RecentEntry {
-  if (typeof value !== "object" || value === null) return false;
-  const entry = value as Partial<RecentEntry>;
-  return (
-    typeof entry.path === "string" &&
-    typeof entry.line === "number" &&
-    typeof entry.col === "number"
-  );
-}
+// ---------- Recent files (pure logic lives in recent.ts) ----------
 
 function loadRecent(): RecentEntry[] {
-  try {
-    const raw: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
-    return Array.isArray(raw) ? raw.filter(isRecentEntry) : [];
-  } catch {
-    return [];
-  }
+  return parseRecent(localStorage.getItem(RECENT_KEY));
 }
 
 function saveRecent(entries: RecentEntry[]): void {
   localStorage.setItem(RECENT_KEY, JSON.stringify(entries.slice(0, RECENT_MAX)));
 }
 
-function upsertRecent(path: string): void {
-  const entries = loadRecent();
-  const existing = entries.find((entry) => entry.path === path);
-  const rest = entries.filter((entry) => entry.path !== path);
-  rest.unshift(existing ?? { path, line: 1, col: 1 });
-  saveRecent(rest);
+function rememberRecent(path: string): void {
+  saveRecent(addRecent(loadRecent(), path));
 }
 
 function forgetRecent(path: string): void {
-  saveRecent(loadRecent().filter((entry) => entry.path !== path));
+  saveRecent(removeRecent(loadRecent(), path));
   renderRecent();
 }
 
 /** Persists the current file's cursor position into its recent-files entry. */
 function syncRecentCursor(): void {
   if (doc.path === null) return;
-  const entries = loadRecent();
-  const entry = entries.find((item) => item.path === doc.path);
-  if (entry === undefined) return;
-  entry.line = lastCursor.line;
-  entry.col = lastCursor.col;
-  saveRecent(entries);
+  saveRecent(withCursor(loadRecent(), doc.path, lastCursor.line, lastCursor.col));
 }
 
 function renderRecent(): void {
@@ -168,7 +140,7 @@ async function afterFileLoaded(path: string): Promise<void> {
   doc.path = path;
   doc.dirty = false;
   updateStatus();
-  upsertRecent(path);
+  rememberRecent(path);
   renderRecent();
   await applyLanguage();
   await refreshMtime();
@@ -294,20 +266,13 @@ async function checkExternalChange(): Promise<void> {
 
 // ---------- View preferences ----------
 
-function readStoredFont(): number {
-  const stored = Number(localStorage.getItem(FONT_KEY));
-  return Number.isFinite(stored) && stored >= FONT_MIN && stored <= FONT_MAX
-    ? stored
-    : FONT_DEFAULT;
-}
-
 function applyFont(): void {
   document.documentElement.style.setProperty("--editor-font-size", `${fontSize}px`);
   localStorage.setItem(FONT_KEY, String(fontSize));
 }
 
 function adjustFont(delta: number): void {
-  fontSize = Math.min(FONT_MAX, Math.max(FONT_MIN, fontSize + delta));
+  fontSize = clampFontSize(fontSize + delta);
   applyFont();
 }
 

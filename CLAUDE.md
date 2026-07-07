@@ -16,10 +16,16 @@ Editor de escritorio (Linux/macOS) de UN archivo a la vez. Tauri 2 (Rust) + Code
 
 ```sh
 npm install            # deps frontend
-npx tsc --noEmit       # type-check: OBLIGATORIO tras cambios de TS
+npm run lint           # Biome (lint + format check)
+npm run lint:fix       # Biome con autofix
+npm run typecheck      # tsc --noEmit: OBLIGATORIO tras cambios de TS
+npm run test           # Vitest (tests unitarios de lógica pura)
+cargo fmt              # formatear Rust (en src-tauri/; no compila nada)
 npm run tauri dev      # correr la app (compila Rust; la lanza el dev, no el agente)
 npm run tauri build    # bundle de producción
 ```
+
+La lógica pura (recientes, prefs, paths) vive en módulos sin DOM ni Tauri (`src/recent.ts`, `src/prefs.ts`, `src/paths.ts`) con tests al lado (`*.test.ts`). Lógica nueva testeable va ahí, no dentro de `main.ts`.
 
 ## Mapa rápido
 
@@ -45,6 +51,6 @@ npm run tauri build    # bundle de producción
 
 ## Al terminar un cambio
 
-1. `npx tsc --noEmit` en verde.
+1. `npm run lint`, `npm run typecheck` y `npm run test` en verde. Si tocaste Rust: `cargo fmt` (clippy corre en CI).
 2. Si tocaste Rust o config de Tauri, avisar que `tauri dev` recompila (no buildear automáticamente).
-3. Actualizar `README.md` (features/atajos) y `docs/ARCHITECTURE.md` (flujos/invariantes) si el cambio los altera.
+3. Actualizar `README.md` (features/atajos), `docs/ARCHITECTURE.md` (flujos/invariantes) y `CHANGELOG.md` si el cambio los altera.
