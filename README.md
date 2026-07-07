@@ -12,7 +12,7 @@ Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) 
 - **Búsqueda integrada** (panel de CodeMirror)
 - **Fuente única** monoespaciada (Consolas / SF Mono / Menlo según plataforma), tamaño ajustable
 - **Indicador de cambios sin guardar** con confirmación al cerrar, abrir o crear archivo
-- **Apertura por CLI**: `portable-editor archivo.txt`
+- **Cuatro formas de abrir un archivo**: botón/atajo en la interfaz, drag & drop a la ventana, "Abrir con..." del sistema (asociaciones de archivo) y por terminal
 
 ## Atajos
 
@@ -25,6 +25,23 @@ Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) 
 | `Mod + F`                         | Buscar / reemplazar |
 | `Mod + Z` / `Mod + Shift + Z`     | Deshacer / rehacer  |
 | `Mod + =` / `Mod + -` / `Mod + 0` | Tamaño de fuente    |
+
+## Abrir archivos
+
+| Vía                  | Cómo                                                                     |
+| -------------------- | ------------------------------------------------------------------------ |
+| Interfaz             | Botón **Abrir** en la status bar o `Mod+O`                                |
+| Drag & drop          | Arrastrá el archivo a la ventana                                          |
+| "Abrir con..."       | Asociaciones registradas al instalar el bundle (extensiones de código)    |
+| Terminal             | `portable-editor archivo.txt`                                             |
+
+En macOS el ejecutable vive dentro del `.app`; para tener el comando en la terminal:
+
+```sh
+sudo ln -s "/Applications/portable-editor.app/Contents/MacOS/portable-editor" /usr/local/bin/portable-editor
+```
+
+En Linux los paquetes `.deb`/`.rpm` ya instalan el binario en el PATH.
 
 ## Requisitos
 

@@ -27,6 +27,19 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "fileAssociations": [
+      {
+        "ext": [
+          "txt", "md", "markdown", "log", "json", "yaml", "yml", "toml", "ini", "conf",
+          "js", "mjs", "cjs", "jsx", "ts", "tsx", "css", "scss", "less", "html", "htm",
+          "xml", "svg", "rs", "py", "go", "java", "kt", "c", "h", "cpp", "hpp", "cs",
+          "rb", "php", "sh", "zsh", "bash", "sql", "lua", "vim", "csv"
+        ],
+        "name": "Text and source files",
+        "description": "Archivos de texto y código fuente",
+        "role": "Editor"
+      }
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

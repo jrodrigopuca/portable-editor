@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { createEditor } from "./editor";
@@ -21,6 +23,9 @@ function byId<T extends HTMLElement>(id: string): T {
 
 const el = {
   editor: byId<HTMLDivElement>("editor"),
+  btnNew: byId<HTMLButtonElement>("btn-new"),
+  btnOpen: byId<HTMLButtonElement>("btn-open"),
+  btnSave: byId<HTMLButtonElement>("btn-save"),
   fileName: byId<HTMLSpanElement>("file-name"),
   dirtyDot: byId<HTMLSpanElement>("file-dirty"),
   cursorPos: byId<HTMLSpanElement>("cursor-pos"),
@@ -206,10 +211,24 @@ void appWindow.onCloseRequested(async (event) => {
   if (doc.dirty && !(await confirmDiscard())) event.preventDefault();
 });
 
+el.btnNew.addEventListener("click", () => void newFile());
+el.btnOpen.addEventListener("click", () => void openFile());
+el.btnSave.addEventListener("click", () => void saveFile());
+
+// Archivos soltados sobre la ventana (el drop del webview trae paths reales)
+void getCurrentWebview().onDragDropEvent((event) => {
+  if (event.payload.type !== "drop") return;
+  const [path] = event.payload.paths;
+  if (path !== undefined) void openFile(path);
+});
+
+// "Abrir con..." del sistema con la app ya corriendo (macOS emite open-file desde Rust)
+void listen<string>("open-file", (event) => void openFile(event.payload));
+
 async function init(): Promise<void> {
   applyFont();
   initThemes();
-  const startup = await invoke<string | null>("cli_file");
+  const startup = await invoke<string | null>("startup_file");
   if (startup !== null) {
     await openFile(startup);
   } else {
