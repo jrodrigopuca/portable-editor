@@ -42,16 +42,37 @@ const el = {
   dirtyDot: byId<HTMLSpanElement>("file-dirty"),
   cursorPos: byId<HTMLSpanElement>("cursor-pos"),
   language: byId<HTMLSpanElement>("language"),
+  encoding: byId<HTMLSpanElement>("encoding"),
+  eol: byId<HTMLSpanElement>("eol"),
   themeSelect: byId<HTMLSelectElement>("theme-select"),
 };
+
+const EOL = { LF: "LF", CRLF: "CRLF" } as const;
+type Eol = (typeof EOL)[keyof typeof EOL];
+const ENCODING_UTF8 = "UTF-8";
+
+/** Shape returned by the `read_file` command; see `src-tauri/src/text_io.rs`. */
+interface DecodedFile {
+  contents: string;
+  encoding: string;
+  eol: Eol;
+}
 
 interface DocState {
   path: string | null;
   dirty: boolean;
   mtime: number | null;
+  encoding: string;
+  eol: Eol;
 }
 
-const doc: DocState = { path: null, dirty: false, mtime: null };
+const doc: DocState = {
+  path: null,
+  dirty: false,
+  mtime: null,
+  encoding: ENCODING_UTF8,
+  eol: EOL.LF,
+};
 const lastCursor = { line: 1, col: 1 };
 let fontSize = parseFontSize(localStorage.getItem(FONT_KEY));
 let wrapOn = localStorage.getItem(WRAP_KEY) === "true";
@@ -78,6 +99,8 @@ function updateStatus(): void {
   el.fileName.textContent = fileLabel();
   el.fileName.title = doc.path ?? "";
   el.dirtyDot.hidden = !doc.dirty;
+  el.encoding.textContent = doc.encoding;
+  el.eol.textContent = doc.eol;
   void appWindow.setTitle(`${doc.dirty ? "● " : ""}${fileLabel()} — ${APP_NAME}`);
 }
 
@@ -153,6 +176,8 @@ async function newFile(): Promise<void> {
   doc.path = null;
   doc.dirty = false;
   doc.mtime = null;
+  doc.encoding = ENCODING_UTF8;
+  doc.eol = EOL.LF;
   updateStatus();
   await applyLanguage();
   editor.focus();
@@ -164,9 +189,11 @@ async function openFile(presetPath?: string): Promise<void> {
   if (typeof path !== "string") return;
 
   try {
-    const contents = await invoke<string>("read_file", { path });
+    const file = await invoke<DecodedFile>("read_file", { path });
     syncRecentCursor();
-    editor.setText(contents);
+    doc.encoding = file.encoding;
+    doc.eol = file.eol;
+    editor.setText(file.contents);
     await afterFileLoaded(path);
     editor.focus();
   } catch (err) {
@@ -180,8 +207,10 @@ async function restoreSession(): Promise<void> {
   const [last] = loadRecent();
   if (last === undefined) return;
   try {
-    const contents = await invoke<string>("read_file", { path: last.path });
-    editor.setText(contents);
+    const file = await invoke<DecodedFile>("read_file", { path: last.path });
+    doc.encoding = file.encoding;
+    doc.eol = file.eol;
+    editor.setText(file.contents);
     await afterFileLoaded(last.path);
     editor.setCursor(last.line, last.col);
   } catch {
@@ -208,8 +237,10 @@ async function saveFileAs(): Promise<void> {
 
 async function writeTo(path: string): Promise<boolean> {
   try {
-    await invoke("write_file", { path, contents: editor.getText() });
+    await invoke("write_file", { path, contents: editor.getText(), eol: doc.eol });
     doc.dirty = false;
+    // Save policy: always UTF-8 on disk, regardless of the source encoding.
+    doc.encoding = ENCODING_UTF8;
     return true;
   } catch (err) {
     await message(String(err), { title: APP_NAME, kind: "error" });
@@ -233,8 +264,10 @@ async function refreshMtime(): Promise<void> {
 
 async function reloadFromDisk(): Promise<void> {
   if (doc.path === null) return;
-  const contents = await invoke<string>("read_file", { path: doc.path });
-  editor.replaceText(contents);
+  const file = await invoke<DecodedFile>("read_file", { path: doc.path });
+  doc.encoding = file.encoding;
+  doc.eol = file.eol;
+  editor.replaceText(file.contents);
   doc.dirty = false;
   updateStatus();
 }

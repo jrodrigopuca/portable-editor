@@ -5,7 +5,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 ## [Sin publicar]
 
-_Nada por ahora._
+### Agregado
+
+- Detección de encoding al abrir archivos: BOM (UTF-8/UTF-16), UTF-8 estricto, y Windows-1252 como fallback para texto legado sin BOM que no decodifica como UTF-8.
+- Detección de fin de línea (LF/CRLF), visible en la status bar junto al encoding.
+- Política de guardado: siempre UTF-8 en disco, preservando el estilo de fin de línea original del archivo.
 
 ## [0.1.0] - 2026-08-19
 

@@ -34,6 +34,7 @@ Idiomas: **código, comentarios y strings de UI en inglés; documentación en es
 | `src/themes.ts`                      | Registro de temas (`THEMES`), paletas y `buildTheme()`                 |
 | `src/styles.css`                     | Layout, status bar, variables CSS de fuente                            |
 | `src-tauri/src/lib.rs`               | Comandos IPC, plugins, evento Opened de macOS                          |
+| `src-tauri/src/text_io.rs`           | Lógica pura: detección de encoding/EOL al leer, codificación al guardar |
 | `src-tauri/src/main.rs`              | Entry point (no tocar, solo llama a `lib.rs`)                          |
 | `src-tauri/tauri.conf.json`          | Ventana, bundle, asociaciones de archivo                               |
 | `src-tauri/capabilities/default.json`| Permisos IPC del webview                                                |
@@ -44,8 +45,8 @@ Idiomas: **código, comentarios y strings de UI en inglés; documentación en es
 
 | Comando        | Firma                                  | Notas                                                       |
 | -------------- | -------------------------------------- | ----------------------------------------------------------- |
-| `read_file`    | `(path: String) -> Result<String>`     | UTF-8 estricto; falla con otros encodings (limitación conocida) |
-| `write_file`   | `(path, contents) -> Result<()>`       | **Atómico**: temp + rename, preserva permisos del original  |
+| `read_file`    | `(path: String) -> Result<DecodedFile>` | `DecodedFile = { contents, encoding, eol }`. Detección: BOM (UTF-8/UTF-16) → UTF-8 estricto → fallback Windows-1252. `contents` siempre viene normalizado a `\n`. |
+| `write_file`   | `(path, contents, eol: String) -> Result<()>` | **Atómico**: temp + rename, preserva permisos del original. Restaura `eol` (`"LF"`/`"CRLF"`) antes de escribir. Política: **siempre UTF-8 en disco**, sin importar el encoding de origen. |
 | `file_mtime`   | `(path) -> Result<u64>`                | Millis desde epoch; usado por el polling de cambios externos |
 | `startup_file` | `() -> Option<String>`                 | Prioridad: PendingFile (macOS "Open with") > argv[1]        |
 
@@ -61,7 +62,7 @@ Todo camino de apertura del frontend converge en `openFile()` de `main.ts`, que 
 
 ### En memoria (`main.ts`)
 
-- `doc: DocState` — `{ path, dirty, mtime }`. Única fuente de verdad sobre el archivo abierto.
+- `doc: DocState` — `{ path, dirty, mtime, encoding, eol }`. Única fuente de verdad sobre el archivo abierto. `encoding` es solo para mostrar en la status bar: tras cada guardado exitoso se resetea a `"UTF-8"` (política de guardado). `eol` sí importa funcionalmente: viaja de vuelta a `write_file` en cada guardado.
 - `lastCursor` — última posición conocida, alimentada por el callback `onCursorMoved`.
 
 ### Persistido (localStorage, prefijo `portable-editor:`)
@@ -81,7 +82,7 @@ Las entradas de recientes guardan el cursor; se sincroniza en `syncRecentCursor(
 `openFile()` → guard de dirty → diálogo nativo (o path directo) → `invoke read_file` → `editor.setText()` (estado nuevo: **descarta historial de undo a propósito**) → `afterFileLoaded()` (path, status, recientes, lenguaje, mtime).
 
 ### Guardar
-`saveFile()`/`saveFileAs()` → `invoke write_file` (atómico) → `refreshMtime()`. El refresh de mtime post-guardado es **obligatorio**: sin él, el polling detectaría el propio guardado como cambio externo.
+`saveFile()`/`saveFileAs()` → `invoke write_file` (atómico, con `eol` de `doc.eol`) → `refreshMtime()`. El refresh de mtime post-guardado es **obligatorio**: sin él, el polling detectaría el propio guardado como cambio externo. `writeTo()` resetea `doc.encoding` a `"UTF-8"` al terminar: el guardado siempre reescribe el archivo en UTF-8, así que mostrar el encoding original después sería mentir.
 
 ### Cambios externos
 Poll cada 2 s + al enfocar la ventana (`checkExternalChange`):
@@ -126,10 +127,10 @@ Para agregar un tema:
 6. **`onDocChanged` dispara también en recargas programáticas** (`replaceText` es un dispatch): el llamador debe resetear `doc.dirty = false` después, como hace `reloadFromDisk()`.
 7. **`tauri dev` con argumento**: los args CLI se prueban con el binario compilado o `npm run tauri dev -- -- -- archivo.txt` (doble `--`).
 8. Las **asociaciones de archivo** solo existen con la app instalada desde el bundle; en dev no funcionan.
+9. **La detección de Windows-1252 es una heurística de último recurso**, no un chardet real: si los bytes no tienen BOM y no son UTF-8 válido, se asume Windows-1252 porque nunca falla al decodificar (mapea todo byte a algún codepoint). Para textos legado que no sean de alfabeto latino (Shift-JIS, etc.) el resultado va a ser basura legible-pero-incorrecta, no un error. Es una decisión consciente de simplicidad (ver ROADMAP), no un bug.
 
 ## Limitaciones conocidas / backlog
 
-- Encodings: `read_to_string` es UTF-8 estricto; archivos latin-1/UTF-16 no abren (candidato: `encoding_rs`).
 - Archivos enormes: se lee todo a memoria y el highlighting parsea sin umbral de tamaño.
 - El polling de mtime no detecta borrado del archivo (se ignora en silencio, por diseño, pero podría indicarse en la status bar).
 

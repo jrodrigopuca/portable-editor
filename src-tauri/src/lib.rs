@@ -2,23 +2,30 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
+mod text_io;
+use text_io::DecodedFile;
+
 /// File received via the OS "Open with..." (macOS Opened event) before the
 /// frontend is ready to listen for it.
 struct PendingFile(Mutex<Option<String>>);
 
-/// Reads the whole file as UTF-8 text.
+/// Reads the whole file, detecting its encoding (BOM, else UTF-8, else
+/// Windows-1252 fallback) and line ending style. See `text_io`.
 #[tauri::command]
-fn read_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("Could not read {path}: {e}"))
+fn read_file(path: String) -> Result<DecodedFile, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
+    Ok(text_io::decode_file(&bytes))
 }
 
 /// Atomic write: temp file in the same directory + rename (atomic on POSIX),
-/// so a crash mid-write never leaves the file corrupted.
+/// so a crash mid-write never leaves the file corrupted. Always writes UTF-8,
+/// restoring the given line ending convention (see `text_io::encode_with_eol`).
 #[tauri::command]
-fn write_file(path: String, contents: String) -> Result<(), String> {
+fn write_file(path: String, contents: String, eol: String) -> Result<(), String> {
     let target = PathBuf::from(&path);
     let tmp = tmp_path(&target);
-    std::fs::write(&tmp, &contents).map_err(|e| format!("Could not save {path}: {e}"))?;
+    let bytes = text_io::encode_with_eol(&contents, &eol);
+    std::fs::write(&tmp, &bytes).map_err(|e| format!("Could not save {path}: {e}"))?;
     if let Ok(meta) = std::fs::metadata(&target) {
         let _ = std::fs::set_permissions(&tmp, meta.permissions());
     }

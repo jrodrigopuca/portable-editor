@@ -48,6 +48,7 @@ La lógica pura (recientes, prefs, paths) vive en módulos sin DOM ni Tauri (`sr
 6. `RunEvent::Opened` va con `#[cfg(target_os = "macos")]`; sin el guard no compila en Linux.
 7. Atajos que dependen de la tecla física usan `event.code` (en macOS, Alt+letra muta `event.key`).
 8. Claves de localStorage con prefijo `portable-editor:`; validar siempre lo que se lee (ver `isRecentEntry`).
+9. `read_file` devuelve `{ contents, encoding, eol }` (no un string pelado); `write_file` recibe `eol` y **siempre escribe UTF-8**, sin importar el encoding de origen. Lógica de detección/codificación en `src-tauri/src/text_io.rs` (testeada con `cargo test`).
 
 ## Al terminar un cambio
 

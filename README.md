@@ -19,6 +19,7 @@ Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) 
 - **Instancia única**: abrir otro archivo por terminal reutiliza la ventana existente
 - **Archivos recientes** y restauración de sesión: reabre el último archivo en la misma línea y columna
 - **Multi-cursor** (`Alt+click`) y selección de siguiente ocurrencia (`Mod+D`), de fábrica con CodeMirror
+- **Detección de encoding** (BOM UTF-8/UTF-16, o Windows-1252 como fallback para texto legado sin BOM) y de fin de línea (LF/CRLF), visibles en la status bar. El guardado siempre escribe UTF-8, preservando el estilo de fin de línea original
 
 ## Atajos
 
