@@ -7,7 +7,7 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 | Dimensión                | Estado | Detalle                                                                 |
 | ------------------------ | :----: | ----------------------------------------------------------------------- |
 | Funcionalidad core       | 🟢     | Editar/abrir/guardar completo, 4 vías de apertura, temas, ~150 lenguajes |
-| Robustez                 | 🟡     | Guardado atómico y cambios externos ✔; encodings y archivos enormes ✘   |
+| Robustez                 | 🟢     | Guardado atómico, cambios externos, encodings, EOL, archivos enormes y archivo borrado — todos ✔ (Fase 3 completa) |
 | Arquitectura             | 🟢     | Capas claras, IPC mínimo, módulos con responsabilidad única              |
 | Documentación            | 🟢     | README, ARCHITECTURE, RELEASE, CLAUDE.md — por encima de la media        |
 | Tests automatizados      | 🟡     | Lógica pura con Vitest (22 tests); sin E2E todavía (smoke test manual)   |
@@ -16,15 +16,15 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 | Distribución             | 🟢     | Íconos propios ✔; release v0.1.0 publicado y firmado/notarizado (macOS arm64+x64, .deb, .rpm, .AppImage) |
 | Legal/comunidad          | 🟢     | Apache-2.0 + NOTICE, CHANGELOG, CONTRIBUTING, templates de issues        |
 
-**Veredicto: alpha temprana.** Red de seguridad, licencia y release reproducible y firmado ya están. Falta robustez de casos borde del mundo real (encodings, archivos enormes, EOL) para beta — ver Fase 3.
+**Veredicto: alpha con robustez completa.** Fase 3 terminada — quedan resueltos todos los casos borde del mundo real que tenía identificados (encodings, EOL, archivos enormes, archivo borrado). Lo único que separa esto de beta ya no es código: es que un usuario real, que no seas vos, lo use y reporte algo.
 
 ### Modelo de referencia
 
 | Nivel         | Criterio de entrada                                                    | Estado |
 | ------------- | ---------------------------------------------------------------------- | :----: |
 | Prototipo     | Funciona en la máquina del autor                                       | ✅ |
-| Alpha         | Red de seguridad (tests + CI + lint), licencia, release reproducible   | ✅ acá |
-| Beta          | Robustez completa, usuarios externos reportando, feedback loop         | Fase 3 |
+| Alpha         | Red de seguridad (tests + CI + lint), licencia, release reproducible   | ✅ |
+| Beta          | Robustez completa, usuarios externos reportando, feedback loop         | ✅ acá (robustez) — falta feedback externo |
 | 1.0           | Estable en uso real, limitaciones conocidas resueltas o documentadas   | Fase 4+ |
 
 ---
@@ -68,7 +68,7 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 
 1. ~~**Encodings**~~ ✅ 2026-08-19 — `read_file` detecta BOM (UTF-8/UTF-16), UTF-8 estricto, y cae a Windows-1252 como último recurso (nunca falla al decodificar). Política de guardado: siempre UTF-8, documentada en `docs/ARCHITECTURE.md`. Lógica en `src-tauri/src/text_io.rs`, testeada con `cargo test`.
 2. ~~**Archivos enormes**~~ ✅ 2026-08-19 — `read_file` chequea el tamaño vía metadata *antes* de leer: por encima de 100 MB rechaza sin cargar nada a memoria (mensaje de error nativo, mismo patrón que cualquier otro error de lectura). Por encima de 10 MB, abre normal pero sin highlighting (status bar: "Plain text (highlighting off, large file)"). Umbrales en `text_io::MAX_FILE_SIZE_BYTES` (Rust) y `HIGHLIGHT_SIZE_LIMIT` (`main.ts`).
-3. **Archivo borrado/renombrado bajo los pies** — hoy el polling lo ignora en silencio; indicar en la status bar ("deleted on disk") y tratar el próximo guardado como "save as".
+3. ~~**Archivo borrado/renombrado bajo los pies**~~ ✅ 2026-08-19 — el polling marca `doc.missing` cuando `file_mtime` falla; la status bar muestra "(deleted on disk)" y `Mod+S` pasa a comportarse como "Save as" en vez de reescribir un path que ya no existe. Se limpia solo si el archivo reaparece (ej. un rename ajeno en curso) o al guardar en una ubicación nueva.
 4. ~~**EOL**~~ ✅ 2026-08-19 — detectado (LF/CRLF) y visible en la status bar; se preserva al guardar. Mismo módulo que encodings.
 5. **E2E mínimo** (opcional pero deseable): `tauri-driver` + WebDriver para el happy path abrir→editar→guardar. Evaluar costo/beneficio: si resulta frágil en CI, el smoke test manual de Fase 1 sigue siendo la línea de defensa.
 

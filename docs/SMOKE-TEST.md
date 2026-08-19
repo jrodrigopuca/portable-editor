@@ -30,6 +30,7 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] Abrir un `.txt` con fin de línea CRLF → status bar muestra "CRLF"; editar y guardar → el archivo conserva CRLF (no se convierte a LF)
 - [ ] Abrir un archivo de ~11 MB → abre editable pero sin highlighting ("Plain text (highlighting off, large file)" en la status bar)
 - [ ] Intentar abrir un archivo de más de 100 MB → rechaza con diálogo de error claro, no cuelga la app
+- [ ] Con un archivo abierto y sin ediciones: borrarlo desde otra terminal → status bar muestra "(deleted on disk)" en ~2 s; `Mod+S` abre "Save as" en vez de guardar en silencio
 
 ## Preferencias y sesión
 

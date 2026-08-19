@@ -62,7 +62,7 @@ Todo camino de apertura del frontend converge en `openFile()` de `main.ts`, que 
 
 ### En memoria (`main.ts`)
 
-- `doc: DocState` — `{ path, dirty, mtime, encoding, eol }`. Única fuente de verdad sobre el archivo abierto. `encoding` es solo para mostrar en la status bar: tras cada guardado exitoso se resetea a `"UTF-8"` (política de guardado). `eol` sí importa funcionalmente: viaja de vuelta a `write_file` en cada guardado.
+- `doc: DocState` — `{ path, dirty, mtime, encoding, eol, missing }`. Única fuente de verdad sobre el archivo abierto. `encoding` es solo para mostrar en la status bar: tras cada guardado exitoso se resetea a `"UTF-8"` (política de guardado). `eol` sí importa funcionalmente: viaja de vuelta a `write_file` en cada guardado. `missing` lo pone `checkExternalChange()` cuando `file_mtime` falla (archivo borrado/renombrado); mientras esté en `true`, `saveFile()` se comporta como `saveFileAs()`.
 - `lastCursor` — última posición conocida, alimentada por el callback `onCursorMoved`.
 
 ### Persistido (localStorage, prefijo `portable-editor:`)
@@ -88,6 +88,7 @@ Las entradas de recientes guardan el cursor; se sincroniza en `syncRecentCursor(
 Poll cada 2 s + al enfocar la ventana (`checkExternalChange`):
 - mtime distinto y **sin** cambios locales → recarga silenciosa con `editor.replaceText()` (preserva cursor e historial de undo).
 - mtime distinto y **con** cambios locales → prompt. Se actualiza `doc.mtime` antes de preguntar para no repetir el prompt por el mismo cambio.
+- `file_mtime` falla (archivo borrado o renombrado) → `doc.missing = true`, status bar muestra "(deleted on disk)", sin diálogo (no hay con qué interactuar). Si una siguiente poll vuelve a leer el mtime OK, se limpia solo. Mientras esté `missing`, `saveFile()` redirige a `saveFileAs()` en vez de reescribir un path que ya no existe.
 
 Decisión: polling en vez de watcher nativo (`notify`). Es un solo archivo; un `stat` cada 2 s es gratis y evita una dependencia y el manejo de estado del watcher.
 
@@ -129,10 +130,6 @@ Para agregar un tema:
 8. Las **asociaciones de archivo** solo existen con la app instalada desde el bundle; en dev no funcionan.
 9. **La detección de Windows-1252 es una heurística de último recurso**, no un chardet real: si los bytes no tienen BOM y no son UTF-8 válido, se asume Windows-1252 porque nunca falla al decodificar (mapea todo byte a algún codepoint). Para textos legado que no sean de alfabeto latino (Shift-JIS, etc.) el resultado va a ser basura legible-pero-incorrecta, no un error. Es una decisión consciente de simplicidad (ver ROADMAP), no un bug.
 10. **El chequeo de tamaño en `read_file` va antes de `std::fs::read`, no después.** El orden importa: es lo que evita cargar un archivo de varios GB a memoria solo para descartarlo. No "simplificar" juntando ambos pasos.
-
-## Limitaciones conocidas / backlog
-
-- El polling de mtime no detecta borrado del archivo (se ignora en silencio, por diseño, pero podría indicarse en la status bar).
 
 ## Verificación
 

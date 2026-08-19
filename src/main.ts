@@ -67,6 +67,8 @@ interface DocState {
   mtime: number | null;
   encoding: string;
   eol: Eol;
+  /** True once a poll finds `path` gone (deleted or renamed elsewhere). */
+  missing: boolean;
 }
 
 const doc: DocState = {
@@ -75,6 +77,7 @@ const doc: DocState = {
   mtime: null,
   encoding: ENCODING_UTF8,
   eol: EOL.LF,
+  missing: false,
 };
 const lastCursor = { line: 1, col: 1 };
 let fontSize = parseFontSize(localStorage.getItem(FONT_KEY));
@@ -99,7 +102,7 @@ function fileLabel(): string {
 }
 
 function updateStatus(): void {
-  el.fileName.textContent = fileLabel();
+  el.fileName.textContent = doc.missing ? `${fileLabel()} (deleted on disk)` : fileLabel();
   el.fileName.title = doc.path ?? "";
   el.dirtyDot.hidden = !doc.dirty;
   el.encoding.textContent = doc.encoding;
@@ -170,6 +173,7 @@ function renderRecent(): void {
 async function afterFileLoaded(path: string): Promise<void> {
   doc.path = path;
   doc.dirty = false;
+  doc.missing = false;
   updateStatus();
   rememberRecent(path);
   renderRecent();
@@ -186,6 +190,7 @@ async function newFile(): Promise<void> {
   doc.mtime = null;
   doc.encoding = ENCODING_UTF8;
   doc.eol = EOL.LF;
+  doc.missing = false;
   updateStatus();
   await applyLanguage();
   editor.focus();
@@ -227,7 +232,9 @@ async function restoreSession(): Promise<void> {
 }
 
 async function saveFile(): Promise<void> {
-  if (doc.path === null) {
+  // No known-good path to overwrite: either untitled, or the file vanished
+  // from under us (deleted/renamed) — let the user pick where it goes.
+  if (doc.path === null || doc.missing) {
     await saveFileAs();
     return;
   }
@@ -287,6 +294,11 @@ async function checkExternalChange(): Promise<void> {
   checkingExternal = true;
   try {
     const mtime = await invoke<number>("file_mtime", { path: doc.path });
+    if (doc.missing) {
+      // Reappeared (e.g. another app's own atomic rename finished mid-poll).
+      doc.missing = false;
+      updateStatus();
+    }
     if (mtime === doc.mtime) return;
     doc.mtime = mtime; // recorded: don't prompt again for the same change
     if (!doc.dirty) {
@@ -299,7 +311,13 @@ async function checkExternalChange(): Promise<void> {
     );
     if (reload) await reloadFromDisk();
   } catch {
-    // deleted or temporarily unreadable: don't nag with dialogs
+    // Deleted, renamed, or temporarily unreadable: don't nag with a dialog,
+    // just flag it so the next save asks where to put the file instead of
+    // silently writing to a path that's no longer there.
+    if (!doc.missing) {
+      doc.missing = true;
+      updateStatus();
+    }
   } finally {
     checkingExternal = false;
   }
