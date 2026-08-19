@@ -1,0 +1,29 @@
+name: Propuesta de feature
+description: Una idea para mejorar el editor
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de proponer, leé la sección **"Qué NO va a tener"** de [docs/ROADMAP.md](../blob/main/docs/ROADMAP.md).
+        portable-editor es deliberadamente mini: un archivo a la vez, rápido, simple. Tabs, file tree, LSP, git integrado y plugins están fuera de alcance por diseño.
+  - type: textarea
+    id: problem
+    attributes:
+      label: ¿Qué problema resuelve?
+      description: Contá el caso de uso real, no la solución.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Propuesta
+    validations:
+      required: true
+  - type: checkboxes
+    id: identity
+    attributes:
+      label: Identidad del proyecto
+      options:
+        - label: Leí los guardrails del ROADMAP y esta propuesta no convierte al editor en un IDE
+          required: true
