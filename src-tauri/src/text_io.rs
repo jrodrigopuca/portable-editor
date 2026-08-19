@@ -1,6 +1,19 @@
 use encoding_rs::{Encoding, WINDOWS_1252};
 use serde::Serialize;
 
+/// Above this, `read_file` refuses to load the file at all — checked against
+/// file metadata before reading, so an oversized file never reaches memory
+/// or the webview. See docs/ROADMAP.md Fase 3.
+pub const MAX_FILE_SIZE_BYTES: u64 = 100 * 1024 * 1024;
+
+pub fn size_limit_error(path: &str, size_bytes: u64) -> String {
+    let mb = size_bytes as f64 / (1024.0 * 1024.0);
+    let limit_mb = MAX_FILE_SIZE_BYTES / (1024 * 1024);
+    format!(
+        "{path} is {mb:.0} MB, larger than portable-editor's {limit_mb} MB limit. Open it with a different tool."
+    )
+}
+
 /// Decoded file contents plus the metadata needed to round-trip it: the
 /// encoding it was read in (display-only, save always writes UTF-8) and the
 /// line ending style to restore on save.
@@ -122,5 +135,13 @@ mod tests {
     fn keeps_lf_on_encode() {
         let bytes = encode_with_eol("line1\nline2\n", "LF");
         assert_eq!(bytes, b"line1\nline2\n");
+    }
+
+    #[test]
+    fn size_limit_error_mentions_path_and_both_sizes() {
+        let msg = size_limit_error("/tmp/huge.log", 150 * 1024 * 1024);
+        assert!(msg.contains("/tmp/huge.log"));
+        assert!(msg.contains("150 MB"));
+        assert!(msg.contains("100 MB"));
     }
 }

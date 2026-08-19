@@ -20,6 +20,7 @@ export interface EditorHandle {
   setWrap: (enabled: boolean) => void;
   setCursor: (line: number, col: number) => void;
   detectLanguage: (path: string | null) => Promise<string>;
+  setPlainText: () => void;
   focus: () => void;
 }
 
@@ -61,6 +62,11 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks): E
     parent,
     state: EditorState.create({ doc: "", extensions: buildExtensions() }),
   });
+
+  const clearLanguage = (): void => {
+    currentLanguage = [];
+    view.dispatch({ effects: languageConfig.reconfigure(currentLanguage) });
+  };
 
   return {
     getText: () => view.state.doc.toString(),
@@ -108,8 +114,7 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks): E
         filename === "" ? null : LanguageDescription.matchFilename(languages, filename);
 
       if (description === null) {
-        currentLanguage = [];
-        view.dispatch({ effects: languageConfig.reconfigure(currentLanguage) });
+        clearLanguage();
         return PLAIN_TEXT_LABEL;
       }
 
@@ -118,6 +123,15 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks): E
       currentLanguage = support;
       view.dispatch({ effects: languageConfig.reconfigure(currentLanguage) });
       return description.name;
+    },
+
+    // Skips the (async) language package load entirely: used for files too
+    // large to make syntax highlighting worth the perf cost. Bumps the
+    // token so a still-in-flight detectLanguage() from a previous file
+    // can't clobber this afterwards.
+    setPlainText: () => {
+      languageToken++;
+      clearLanguage();
     },
 
     focus: () => view.focus(),

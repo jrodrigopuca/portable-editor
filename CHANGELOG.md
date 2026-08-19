@@ -10,6 +10,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 - Detección de encoding al abrir archivos: BOM (UTF-8/UTF-16), UTF-8 estricto, y Windows-1252 como fallback para texto legado sin BOM que no decodifica como UTF-8.
 - Detección de fin de línea (LF/CRLF), visible en la status bar junto al encoding.
 - Política de guardado: siempre UTF-8 en disco, preservando el estilo de fin de línea original del archivo.
+- Límite de tamaño de archivo: por encima de 100 MB, `read_file` rechaza el archivo sin cargarlo a memoria (mensaje de error claro). Entre 10 y 100 MB, abre igual pero sin syntax highlighting para mantener el editor responsive.
 
 ## [0.1.0] - 2026-08-19
 

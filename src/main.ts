@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { createEditor } from "./editor";
+import { createEditor, PLAIN_TEXT_LABEL } from "./editor";
 import { basename } from "./paths";
 import { clampFontSize, FONT_DEFAULT, parseFontSize } from "./prefs";
 import {
@@ -22,6 +22,9 @@ const FONT_KEY = "portable-editor:font-size";
 const WRAP_KEY = "portable-editor:wrap";
 const RECENT_KEY = "portable-editor:recent";
 const MTIME_POLL_MS = 2000;
+// Above this, skip syntax highlighting to keep the editor responsive. See
+// docs/ROADMAP.md Fase 3 — read_file itself rejects anything past 100 MB.
+const HIGHLIGHT_SIZE_LIMIT = 10 * 1024 * 1024;
 
 const appWindow = getCurrentWindow();
 
@@ -105,6 +108,11 @@ function updateStatus(): void {
 }
 
 async function applyLanguage(): Promise<void> {
+  if (editor.getText().length > HIGHLIGHT_SIZE_LIMIT) {
+    editor.setPlainText();
+    el.language.textContent = `${PLAIN_TEXT_LABEL} (highlighting off, large file)`;
+    return;
+  }
   el.language.textContent = await editor.detectLanguage(doc.path);
 }
 

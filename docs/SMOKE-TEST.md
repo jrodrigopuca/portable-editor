@@ -28,6 +28,8 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] Cerrar la ventana con cambios sin guardar → pide confirmación
 - [ ] Abrir un `.txt` en Windows-1252 sin BOM (con tildes/ñ) → status bar muestra "Windows-1252", texto legible; editar y guardar → status bar pasa a "UTF-8"
 - [ ] Abrir un `.txt` con fin de línea CRLF → status bar muestra "CRLF"; editar y guardar → el archivo conserva CRLF (no se convierte a LF)
+- [ ] Abrir un archivo de ~11 MB → abre editable pero sin highlighting ("Plain text (highlighting off, large file)" en la status bar)
+- [ ] Intentar abrir un archivo de más de 100 MB → rechaza con diálogo de error claro, no cuelga la app
 
 ## Preferencias y sesión
 

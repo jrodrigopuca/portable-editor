@@ -67,7 +67,7 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 **Objetivo:** que los casos borde del mundo real no rompan la confianza.
 
 1. ~~**Encodings**~~ ✅ 2026-08-19 — `read_file` detecta BOM (UTF-8/UTF-16), UTF-8 estricto, y cae a Windows-1252 como último recurso (nunca falla al decodificar). Política de guardado: siempre UTF-8, documentada en `docs/ARCHITECTURE.md`. Lógica en `src-tauri/src/text_io.rs`, testeada con `cargo test`.
-2. **Archivos enormes** — umbral (p. ej. 10 MB): por encima, abrir sin highlighting y avisar en la status bar. Por encima de un segundo umbral, rechazar con mensaje claro antes de colgar el webview.
+2. ~~**Archivos enormes**~~ ✅ 2026-08-19 — `read_file` chequea el tamaño vía metadata *antes* de leer: por encima de 100 MB rechaza sin cargar nada a memoria (mensaje de error nativo, mismo patrón que cualquier otro error de lectura). Por encima de 10 MB, abre normal pero sin highlighting (status bar: "Plain text (highlighting off, large file)"). Umbrales en `text_io::MAX_FILE_SIZE_BYTES` (Rust) y `HIGHLIGHT_SIZE_LIMIT` (`main.ts`).
 3. **Archivo borrado/renombrado bajo los pies** — hoy el polling lo ignora en silencio; indicar en la status bar ("deleted on disk") y tratar el próximo guardado como "save as".
 4. ~~**EOL**~~ ✅ 2026-08-19 — detectado (LF/CRLF) y visible en la status bar; se preserva al guardar. Mismo módulo que encodings.
 5. **E2E mínimo** (opcional pero deseable): `tauri-driver` + WebDriver para el happy path abrir→editar→guardar. Evaluar costo/beneficio: si resulta frágil en CI, el smoke test manual de Fase 1 sigue siendo la línea de defensa.

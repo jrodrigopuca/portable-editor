@@ -11,8 +11,15 @@ struct PendingFile(Mutex<Option<String>>);
 
 /// Reads the whole file, detecting its encoding (BOM, else UTF-8, else
 /// Windows-1252 fallback) and line ending style. See `text_io`.
+///
+/// Checks size via metadata before reading: an oversized file is rejected
+/// without ever being loaded into memory, so it can't hang the webview.
 #[tauri::command]
 fn read_file(path: String) -> Result<DecodedFile, String> {
+    let meta = std::fs::metadata(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
+    if meta.len() > text_io::MAX_FILE_SIZE_BYTES {
+        return Err(text_io::size_limit_error(&path, meta.len()));
+    }
     let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
     Ok(text_io::decode_file(&bytes))
 }

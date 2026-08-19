@@ -45,7 +45,7 @@ Idiomas: **código, comentarios y strings de UI en inglés; documentación en es
 
 | Comando        | Firma                                  | Notas                                                       |
 | -------------- | -------------------------------------- | ----------------------------------------------------------- |
-| `read_file`    | `(path: String) -> Result<DecodedFile>` | `DecodedFile = { contents, encoding, eol }`. Detección: BOM (UTF-8/UTF-16) → UTF-8 estricto → fallback Windows-1252. `contents` siempre viene normalizado a `\n`. |
+| `read_file`    | `(path: String) -> Result<DecodedFile>` | `DecodedFile = { contents, encoding, eol }`. Chequea tamaño vía metadata primero: rechaza sin leer si supera `text_io::MAX_FILE_SIZE_BYTES` (100 MB). Detección: BOM (UTF-8/UTF-16) → UTF-8 estricto → fallback Windows-1252. `contents` siempre viene normalizado a `\n`. |
 | `write_file`   | `(path, contents, eol: String) -> Result<()>` | **Atómico**: temp + rename, preserva permisos del original. Restaura `eol` (`"LF"`/`"CRLF"`) antes de escribir. Política: **siempre UTF-8 en disco**, sin importar el encoding de origen. |
 | `file_mtime`   | `(path) -> Result<u64>`                | Millis desde epoch; usado por el polling de cambios externos |
 | `startup_file` | `() -> Option<String>`                 | Prioridad: PendingFile (macOS "Open with") > argv[1]        |
@@ -128,10 +128,10 @@ Para agregar un tema:
 7. **`tauri dev` con argumento**: los args CLI se prueban con el binario compilado o `npm run tauri dev -- -- -- archivo.txt` (doble `--`).
 8. Las **asociaciones de archivo** solo existen con la app instalada desde el bundle; en dev no funcionan.
 9. **La detección de Windows-1252 es una heurística de último recurso**, no un chardet real: si los bytes no tienen BOM y no son UTF-8 válido, se asume Windows-1252 porque nunca falla al decodificar (mapea todo byte a algún codepoint). Para textos legado que no sean de alfabeto latino (Shift-JIS, etc.) el resultado va a ser basura legible-pero-incorrecta, no un error. Es una decisión consciente de simplicidad (ver ROADMAP), no un bug.
+10. **El chequeo de tamaño en `read_file` va antes de `std::fs::read`, no después.** El orden importa: es lo que evita cargar un archivo de varios GB a memoria solo para descartarlo. No "simplificar" juntando ambos pasos.
 
 ## Limitaciones conocidas / backlog
 
-- Archivos enormes: se lee todo a memoria y el highlighting parsea sin umbral de tamaño.
 - El polling de mtime no detecta borrado del archivo (se ignora en silencio, por diseño, pero podría indicarse en la status bar).
 
 ## Verificación
