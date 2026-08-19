@@ -133,6 +133,7 @@ Para agregar un tema:
 10. **El chequeo de tamaño en `read_file` va antes de `std::fs::read`, no después.** El orden importa: es lo que evita cargar un archivo de varios GB a memoria solo para descartarlo. No "simplificar" juntando ambos pasos.
 11. **No agregar `PredefinedMenuItem::quit` al menú sin resolver esto antes**: en Tauri, Quit saltea `onCloseRequested` y llama `exit(0)` directo — el guard de "cambios sin guardar" nunca se ejecuta. Bug conocido y abierto en Tauri (issues #3124/#7586/#13511). Por eso hoy no hay Quit en el menú.
 12. **Cada accelerator del menú nativo (`build_menu`) es dueño único de su atajo.** `Mod+N/O/S/Shift+S` fueron sacados a propósito del keydown handler de `main.ts` — dejar ambos caminos activos arriesga doble disparo (ej. dos diálogos de "Save as" a la vez).
+13. **El panel de búsqueda de CodeMirror (`Mod+F`) se tematiza en `styles.css` (`#editor .cm-panel.cm-search`), no en `themes.ts`.** Es chrome del programa, no contenido del editor — mismo criterio que la status bar. No moverlo a `buildTheme()`: haría 4 variantes ligeramente distintas en vez de una consistente, y dejaría afuera a One Dark (no pasa por `buildTheme()`). El botón de cerrar (`button[name="close"]`) viene `position: absolute` del base theme de CM6; hay que pisarlo a `static` o `margin-left: auto` no hace nada.
 
 ## Verificación
 

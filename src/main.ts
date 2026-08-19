@@ -387,6 +387,7 @@ const SHORTCUTS: readonly ShortcutEntry[] = [
   { keys: "Mod+Shift+S", action: "Save as" },
   { keys: "Mod+N", action: "New file" },
   { keys: "Mod+F", action: "Find / replace" },
+  { keys: "Mod+Alt+G", action: "Go to line" },
   { keys: "Mod+Z", action: "Undo" },
   { keys: "Mod+Shift+Z", action: "Redo" },
   { keys: "Mod+D", action: "Select next occurrence" },

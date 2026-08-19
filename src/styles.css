@@ -108,6 +108,107 @@ body[data-dark="false"] #statusbar {
   border-color: #d0d7de;
 }
 
+/* CodeMirror's search/replace panel: app chrome, not editor content — styled
+   here (dark/light, like the status bar) instead of per-theme in themes.ts,
+   so it stays consistent regardless of which of the 4 editor themes is active. */
+#editor .cm-panel.cm-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+#editor .cm-panel.cm-search label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+#editor .cm-textfield {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  outline: none;
+}
+
+#editor .cm-textfield:focus {
+  outline: 2px solid currentColor;
+  outline-offset: -1px;
+  opacity: 1;
+}
+
+#editor .cm-button {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  background-image: none;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+#editor .cm-button:hover {
+  opacity: 1;
+}
+
+#editor .cm-panel.cm-search button[name="close"] {
+  /* CM6's own base theme absolutely-positions this (top:0; right:4px),
+     which let it overlap other panel controls under our flex layout.
+     Pull it back into normal flex flow so margin-left:auto actually works. */
+  position: static;
+  margin-left: auto;
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+#editor .cm-panel.cm-search button[name="close"]:hover {
+  opacity: 1;
+}
+
+body[data-dark="true"] #editor .cm-panel.cm-search {
+  background: #21252b;
+  color: #9da5b4;
+  border-top: 1px solid #181a1f;
+}
+
+body[data-dark="true"] #editor .cm-textfield,
+body[data-dark="true"] #editor .cm-button {
+  background: #2c313a;
+  color: #9da5b4;
+  border: 1px solid #181a1f;
+}
+
+body[data-dark="true"] #editor .cm-textfield:focus {
+  outline-color: #528bff;
+}
+
+body[data-dark="false"] #editor .cm-panel.cm-search {
+  background: #f6f8fa;
+  color: #57606a;
+  border-top: 1px solid #d0d7de;
+}
+
+body[data-dark="false"] #editor .cm-textfield,
+body[data-dark="false"] #editor .cm-button {
+  background: #ffffff;
+  color: #24292f;
+  border: 1px solid #d0d7de;
+}
+
+body[data-dark="false"] #editor .cm-textfield:focus {
+  outline-color: #0969da;
+}
+
 #shortcuts-panel {
   position: fixed;
   inset: 0;

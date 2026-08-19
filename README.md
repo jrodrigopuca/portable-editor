@@ -30,6 +30,7 @@ Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) 
 | `Mod + Shift + S`                 | Guardar como        |
 | `Mod + N`                         | Nuevo archivo       |
 | `Mod + F`                         | Buscar / reemplazar |
+| `Mod + Alt + G`                   | Ir a línea           |
 | `Mod + Z` / `Mod + Shift + Z`     | Deshacer / rehacer  |
 | `Mod + =` / `Mod + -` / `Mod + 0` | Tamaño de fuente    |
 | `Mod + D`                         | Seleccionar siguiente ocurrencia |
