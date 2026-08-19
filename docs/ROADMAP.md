@@ -1,6 +1,6 @@
 # Roadmap y madurez — portable-editor
 
-Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con criterios de salida verificables. Última actualización: 2026-07-07.
+Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con criterios de salida verificables. Última actualización: 2026-08-19.
 
 ## 1. Diagnóstico de madurez
 
@@ -13,17 +13,17 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 | Tests automatizados      | 🟡     | Lógica pura con Vitest (22 tests); sin E2E todavía (smoke test manual)   |
 | CI de calidad            | 🟢     | Biome, tsc, Vitest, rustfmt y clippy en cada push/PR                     |
 | Lint/format              | 🟢     | Biome (frontend) + rustfmt/clippy (backend)                              |
-| Distribución             | 🟡     | Íconos propios ✔; workflow de release pendiente de primera ejecución    |
+| Distribución             | 🟢     | Íconos propios ✔; release v0.1.0 publicado y firmado/notarizado (macOS arm64+x64, .deb, .rpm, .AppImage) |
 | Legal/comunidad          | 🟢     | Apache-2.0 + NOTICE, CHANGELOG, CONTRIBUTING, templates de issues        |
 
-**Veredicto: prototipo avanzado (pre-alpha).** Core funcional y bien documentado, sin red de seguridad. La prioridad no es agregar features: es que lo que existe no se pueda romper sin que algo grite.
+**Veredicto: alpha temprana.** Red de seguridad, licencia y release reproducible y firmado ya están. Falta robustez de casos borde del mundo real (encodings, archivos enormes, EOL) para beta — ver Fase 3.
 
 ### Modelo de referencia
 
 | Nivel         | Criterio de entrada                                                    | Estado |
 | ------------- | ---------------------------------------------------------------------- | :----: |
-| Prototipo     | Funciona en la máquina del autor                                       | ✅ acá |
-| Alpha         | Red de seguridad (tests + CI + lint), licencia, release reproducible   | Fase 1-2 |
+| Prototipo     | Funciona en la máquina del autor                                       | ✅ |
+| Alpha         | Red de seguridad (tests + CI + lint), licencia, release reproducible   | ✅ acá |
 | Beta          | Robustez completa, usuarios externos reportando, feedback loop         | Fase 3 |
 | 1.0           | Estable en uso real, limitaciones conocidas resueltas o documentadas   | Fase 4+ |
 
@@ -47,16 +47,18 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 
 ---
 
-## 3. Fase 2 — Primer release público (v0.1.0) — en curso
+## 3. Fase 2 — Primer release público (v0.1.0) ✅ 2026-08-19
 
 **Objetivo:** artefactos instalables por terceros, proceso de release ejercitado de punta a punta.
 
-1. Íconos propios (`npm run tauri icon`) — hoy está el logo de Tauri.
-2. Ejecutar el workflow de release con un tag real (`v0.1.0`) y validar los cuatro artefactos en máquinas limpias (o VMs): .dmg en ambas arquitecturas, .deb, .AppImage.
-3. Release notes con instrucciones Gatekeeper (mientras no haya firma de Apple).
-4. Templates de issues (bug report con SO/versión/pasos) y `CONTRIBUTING.md` corto que apunte a `docs/ARCHITECTURE.md` y a las convenciones de `CLAUDE.md`.
+1. Íconos propios (`npm run tauri icon`) ✔
+2. Workflow de release ejecutado con tag real (`v0.1.0`): .dmg arm64/x64, .deb, .rpm, .AppImage. Validado manualmente en macOS por el autor. ✔
+3. Firma y notarización de Apple (Developer ID Application) configuradas antes del primer release — se adelantó el ítem de Fase 5 porque ya había certificado disponible. El `.dmg` no muestra advertencia de Gatekeeper; las release notes con instrucciones de `xattr -cr` quedaron sin uso. ✔
+4. Templates de issues (bug report con SO/versión/pasos) y `CONTRIBUTING.md` corto que apunta a `docs/ARCHITECTURE.md` y a las convenciones de `CLAUDE.md`. ✔
 
 **Criterio de salida:** una persona que no sos vos instala el editor desde GitHub Releases y edita un archivo sin ayuda.
+
+> **Pendiente real:** el criterio de salida tal como está escrito requiere una instalación de un tercero, y hoy solo está validado por el autor en su propia máquina. La fase se da por cerrada porque el pipeline de distribución (build, firma, notarización, publicación) quedó probado de punta a punta — que es lo que bloqueaba avanzar — pero la validación por un tercero real sigue abierta. Vale la pena pedirle a alguien externo que instale desde el release y confirme, aunque sea informalmente.
 
 ---
 
@@ -97,7 +99,7 @@ En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, de
 
 1. **Homebrew tap propio** — cask apuntando al .dmg del release. Esfuerzo: horas.
 2. **AUR** — `PKGBUILD` sobre el release. La comunidad Arch suele adoptarlo sola.
-3. **Firma y notarización de Apple** (USD 99/año) — cuando las descargas de macOS justifiquen eliminar la fricción de Gatekeeper. El workflow ya la soporta vía secrets.
+3. ~~**Firma y notarización de Apple**~~ — completado en Fase 2 (2026-08-19), antes de lo previsto: ya había certificado disponible.
 4. **Flathub** — mayor alcance Linux; requiere manifest y revisión. Solo con demanda concreta.
 5. **Auto-updates** (`tauri-plugin-updater`) — último de la lista: para un editor mini, bajar el release nuevo alcanza durante mucho tiempo.
 

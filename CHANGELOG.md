@@ -7,7 +7,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 _Nada por ahora._
 
-## [0.1.0] - 2026-07-07
+## [0.1.0] - 2026-08-19
 
 ### Agregado
 
@@ -25,3 +25,5 @@ _Nada por ahora._
 - Workflow de release (GitHub Actions + tauri-action): macOS arm64/x86_64 y Linux, draft release con artefactos.
 - Fase 1 de solidez: licencia Apache-2.0 + NOTICE, Biome (lint/format), Vitest con tests de lógica pura, CI de calidad, checklist de smoke test.
 - Fase 2: ícono propio (fuente SVG en `assets/`), templates de issues, guía de contribución.
+- Firma y notarización de Apple (Developer ID Application) en el workflow de release: los bundles de macOS instalan sin advertencia de Gatekeeper.
+- Primer [release público en GitHub](https://github.com/jrodrigopuca/portable-editor/releases/tag/v0.1.0): .dmg (arm64/x64) firmados y notarizados, .deb, .rpm, .AppImage.
