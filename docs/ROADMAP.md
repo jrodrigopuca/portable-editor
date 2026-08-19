@@ -80,12 +80,13 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 
 Orden sugerido por relación valor/complejidad:
 
-1. **Go to line** (`Mod+G`) — ya está en `@codemirror/search`, falta el keybinding.
-2. **Indentación**: detección automática (tabs/spaces, ancho) al abrir + toggle en la status bar (`indentUnit` en un Compartment, patrón ya establecido).
-3. **Búsqueda con estilo propio** — el panel de CodeMirror funciona pero desentona con los temas; tematizarlo.
-4. **Settings file opcional** (`~/.config/portable-editor/settings.json`): fuente, tamaño, tema, wrap. Solo si los pedidos reales lo justifican — localStorage ya cubre el 90%.
-5. **Más temas** — costo marginal casi nulo con el registro actual (paleta + entrada en `THEMES`).
-6. **Command palette** (`Mod+K`) — evaluar recién cuando la cantidad de acciones lo amerite; hoy con 8 acciones sería ceremonia.
+1. **Menú nativo (File/Edit/View/Window)** — hoy no hay ningún menú configurado (`tauri::menu` sin usar); el menú default de Tauri está prácticamente vacío. Resuelve dos problemas a la vez: da acceso a Open/Save/etc. sin memorizar atajos, y cada `MenuItem` muestra su atajo al lado de la etiqueta (documentación visible, gratis). Complejidad acotada pero real: construir el menú en `lib.rs` y conectar cada ítem a las funciones ya existentes de `main.ts` (mismo patrón `emit`/`listen` que `open-file`); macOS y Linux (webkit2gtk) tienen convenciones distintas que respetar (en macOS el primer menú es el nombre de la app, con Quit/Preferences ahí, no en File).
+2. **Go to line** (`Mod+G`) — ya está en `@codemirror/search`, falta el keybinding.
+3. **Indentación**: detección automática (tabs/spaces, ancho) al abrir + toggle en la status bar (`indentUnit` en un Compartment, patrón ya establecido).
+4. **Búsqueda con estilo propio** — el panel de CodeMirror funciona pero desentona con los temas; tematizarlo.
+5. **Settings file opcional** (`~/.config/portable-editor/settings.json`): fuente, tamaño, tema, wrap. Solo si los pedidos reales lo justifican — localStorage ya cubre el 90%.
+6. **Más temas** — costo marginal casi nulo con el registro actual (paleta + entrada en `THEMES`).
+7. **Command palette** (`Mod+K`) — evaluar recién cuando la cantidad de acciones lo amerite; con el menú nativo (ítem 1) cubriendo la discoverability, esto pierde bastante urgencia.
 
 ### Qué NO va a tener (guardrails de identidad)
 
