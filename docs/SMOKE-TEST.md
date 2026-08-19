@@ -46,3 +46,10 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] `Mod+Z` / `Mod+Shift+Z` deshacen/rehacen
 - [ ] `Mod+D` selecciona la siguiente ocurrencia; `Alt+click` agrega cursor
 - [ ] Números de línea visibles y línea activa resaltada
+
+## Menú nativo
+
+- [ ] Menú **File** visible con New/Open…/Save/Save As…, cada uno con su atajo al lado
+- [ ] Los 4 atajos del File menu funcionan y no abren nada dos veces (probar Open y Save As en particular)
+- [ ] macOS: el primer menú (izquierda) muestra el nombre de la app, con "About portable-editor" adentro mostrando la versión correcta
+- [ ] `Mod+/` (o Help → Keyboard Shortcuts) abre el panel de atajos; `Esc`, la ✕ y el click afuera lo cierran

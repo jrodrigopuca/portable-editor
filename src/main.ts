@@ -48,6 +48,10 @@ const el = {
   encoding: byId<HTMLSpanElement>("encoding"),
   eol: byId<HTMLSpanElement>("eol"),
   themeSelect: byId<HTMLSelectElement>("theme-select"),
+  shortcutsPanel: byId<HTMLDivElement>("shortcuts-panel"),
+  shortcutsBackdrop: byId<HTMLDivElement>("shortcuts-backdrop"),
+  shortcutsList: byId<HTMLTableElement>("shortcuts-list"),
+  btnCloseShortcuts: byId<HTMLButtonElement>("btn-close-shortcuts"),
 };
 
 const EOL = { LF: "LF", CRLF: "CRLF" } as const;
@@ -369,11 +373,77 @@ function initThemes(): void {
   });
 }
 
+// ---------- Keyboard shortcuts panel ----------
+
+interface ShortcutEntry {
+  keys: string;
+  action: string;
+}
+
+// Keep in sync with the "Atajos" table in README.md.
+const SHORTCUTS: readonly ShortcutEntry[] = [
+  { keys: "Mod+O", action: "Open file" },
+  { keys: "Mod+S", action: "Save" },
+  { keys: "Mod+Shift+S", action: "Save as" },
+  { keys: "Mod+N", action: "New file" },
+  { keys: "Mod+F", action: "Find / replace" },
+  { keys: "Mod+Z", action: "Undo" },
+  { keys: "Mod+Shift+Z", action: "Redo" },
+  { keys: "Mod+D", action: "Select next occurrence" },
+  { keys: "Alt+click", action: "Add cursor" },
+  { keys: "Mod+=", action: "Increase font size" },
+  { keys: "Mod+-", action: "Decrease font size" },
+  { keys: "Mod+0", action: "Reset font size" },
+  { keys: "Alt+Z", action: "Toggle word wrap" },
+  { keys: "Mod+/", action: "Show this panel" },
+];
+
+const isMac = navigator.userAgent.includes("Mac");
+
+function formatKeys(keys: string): string {
+  const symbols: Record<string, string> = {
+    Mod: isMac ? "⌘" : "Ctrl",
+    Alt: isMac ? "⌥" : "Alt",
+    Shift: isMac ? "⇧" : "Shift",
+  };
+  return keys
+    .split("+")
+    .map((part) => symbols[part] ?? part)
+    .join(isMac ? "" : "+");
+}
+
+function renderShortcuts(): void {
+  el.shortcutsList.replaceChildren();
+  for (const { keys, action } of SHORTCUTS) {
+    const row = document.createElement("tr");
+    const keysCell = document.createElement("td");
+    keysCell.className = "shortcut-keys";
+    keysCell.textContent = formatKeys(keys);
+    const actionCell = document.createElement("td");
+    actionCell.textContent = action;
+    row.append(keysCell, actionCell);
+    el.shortcutsList.appendChild(row);
+  }
+}
+
+function openShortcuts(): void {
+  el.shortcutsPanel.hidden = false;
+}
+
+function closeShortcuts(): void {
+  el.shortcutsPanel.hidden = true;
+}
+
 // ---------- UI events ----------
 
 window.addEventListener(
   "keydown",
   (event) => {
+    if (event.key === "Escape" && !el.shortcutsPanel.hidden) {
+      event.preventDefault();
+      closeShortcuts();
+      return;
+    }
     if (event.altKey && event.code === "KeyZ") {
       event.preventDefault();
       toggleWrap();
@@ -382,19 +452,10 @@ window.addEventListener(
     if (!(event.metaKey || event.ctrlKey)) return;
     const key = event.key.toLowerCase();
 
-    if (key === "o") {
-      event.preventDefault();
-      void openFile();
-    } else if (key === "s" && event.shiftKey) {
-      event.preventDefault();
-      void saveFileAs();
-    } else if (key === "s") {
-      event.preventDefault();
-      void saveFile();
-    } else if (key === "n") {
-      event.preventDefault();
-      void newFile();
-    } else if (key === "=" || key === "+") {
+    // New/Open/Save/Save As are handled by the native File menu (see
+    // src-tauri/src/lib.rs) — not duplicated here to avoid double-firing
+    // (e.g. two "Save as" dialogs).
+    if (key === "=" || key === "+") {
       event.preventDefault();
       adjustFont(1);
     } else if (key === "-") {
@@ -439,6 +500,30 @@ void getCurrentWebview().onDragDropEvent((event) => {
 // (single-instance): both emit open-file from Rust
 void listen<string>("open-file", (event) => void openFile(event.payload));
 
+// Native File menu clicks/accelerators (see src-tauri/src/lib.rs build_menu)
+void listen<string>("menu-action", (event) => {
+  switch (event.payload) {
+    case "new":
+      void newFile();
+      break;
+    case "open":
+      void openFile();
+      break;
+    case "save":
+      void saveFile();
+      break;
+    case "save_as":
+      void saveFileAs();
+      break;
+    case "shortcuts":
+      openShortcuts();
+      break;
+  }
+});
+
+el.btnCloseShortcuts.addEventListener("click", () => closeShortcuts());
+el.shortcutsBackdrop.addEventListener("click", () => closeShortcuts());
+
 // ---------- Init ----------
 
 async function init(): Promise<void> {
@@ -446,6 +531,7 @@ async function init(): Promise<void> {
   applyWrap();
   initThemes();
   renderRecent();
+  renderShortcuts();
   const startup = await invoke<string | null>("startup_file");
   if (startup !== null) {
     await openFile(startup);

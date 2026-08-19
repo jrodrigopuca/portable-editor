@@ -62,6 +62,107 @@ fn file_mtime(path: String) -> Result<u64, String> {
         .as_millis() as u64)
 }
 
+/// Builds the File menu (New/Open/Save/Save As), a Help menu (Keyboard
+/// Shortcuts, opens the in-app panel; About, with the app version — macOS:
+/// app-name menu instead). Deliberately stops there: no Quit (Tauri's
+/// PredefinedMenuItem::quit bypasses onCloseRequested and skips the
+/// unsaved-changes guard — see docs/ARCHITECTURE.md), no Edit (CodeMirror
+/// owns undo/redo/clipboard via its own keymap, not the OS undo manager).
+///
+/// Each item's accelerator makes the native menu the single owner of that
+/// shortcut; the equivalent keys are deliberately absent from the JS keydown
+/// handler in `main.ts` to avoid double-firing (e.g. two "Save as" dialogs).
+/// Click/keypress handling: `on_menu_event` re-emits the item id as
+/// `menu-action`, picked up by `main.ts`.
+fn build_menu(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+    use tauri::Emitter;
+
+    let new_item = MenuItemBuilder::with_id("new", "New")
+        .accelerator("CmdOrCtrl+N")
+        .build(app)?;
+    let open_item = MenuItemBuilder::with_id("open", "Open…")
+        .accelerator("CmdOrCtrl+O")
+        .build(app)?;
+    let save_item = MenuItemBuilder::with_id("save", "Save")
+        .accelerator("CmdOrCtrl+S")
+        .build(app)?;
+    let save_as_item = MenuItemBuilder::with_id("save_as", "Save As…")
+        .accelerator("CmdOrCtrl+Shift+S")
+        .build(app)?;
+
+    let file_menu = SubmenuBuilder::new(app, "File")
+        .item(&new_item)
+        .item(&open_item)
+        .separator()
+        .item(&save_item)
+        .item(&save_as_item)
+        .build()?;
+
+    // Version shown in the About panel comes straight from Cargo.toml at
+    // compile time — never goes stale when the version is bumped for a release.
+    let about_metadata = tauri::menu::AboutMetadata {
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        ..Default::default()
+    };
+
+    let shortcuts_item = MenuItemBuilder::with_id("shortcuts", "Keyboard Shortcuts")
+        .accelerator("CmdOrCtrl+/")
+        .build(app)?;
+
+    let mut menu_builder = MenuBuilder::new(app);
+
+    // macOS convention: About lives in the app-name menu (leftmost, which is
+    // always whatever submenu is added first). Everywhere else it goes in
+    // Help instead, alongside Keyboard Shortcuts — Help itself is built the
+    // same way on every platform.
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::menu::PredefinedMenuItem;
+        let about_item =
+            PredefinedMenuItem::about(app, Some("About portable-editor"), Some(about_metadata))?;
+        let app_menu = SubmenuBuilder::new(app, "portable-editor")
+            .item(&about_item)
+            .build()?;
+        menu_builder = menu_builder.item(&app_menu);
+    }
+
+    menu_builder = menu_builder.item(&file_menu);
+
+    let help_menu = {
+        #[cfg(target_os = "macos")]
+        {
+            SubmenuBuilder::new(app, "Help")
+                .item(&shortcuts_item)
+                .build()?
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            use tauri::menu::PredefinedMenuItem;
+            let about_item = PredefinedMenuItem::about(
+                app,
+                Some("About portable-editor"),
+                Some(about_metadata),
+            )?;
+            SubmenuBuilder::new(app, "Help")
+                .item(&shortcuts_item)
+                .separator()
+                .item(&about_item)
+                .build()?
+        }
+    };
+    menu_builder = menu_builder.item(&help_menu);
+
+    app.set_menu(menu_builder.build()?)?;
+
+    let handle = app.handle().clone();
+    app.on_menu_event(move |_app, event| {
+        let _ = handle.emit("menu-action", event.id().0.as_str());
+    });
+
+    Ok(())
+}
+
 /// File to open on startup: whatever arrived via the OS "Open with..." first,
 /// otherwise the first CLI argument (`portable-editor file.txt`).
 #[tauri::command]
@@ -98,6 +199,10 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .manage(PendingFile(Mutex::new(None)))
+        .setup(|app| {
+            build_menu(app)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             read_file,
             write_file,

@@ -33,7 +33,7 @@ Idiomas: **código, comentarios y strings de UI en inglés; documentación en es
 | `src/editor.ts`                      | CodeMirror encapsulado tras `EditorHandle`; único módulo que importa CodeMirror |
 | `src/themes.ts`                      | Registro de temas (`THEMES`), paletas y `buildTheme()`                 |
 | `src/styles.css`                     | Layout, status bar, variables CSS de fuente                            |
-| `src-tauri/src/lib.rs`               | Comandos IPC, plugins, evento Opened de macOS                          |
+| `src-tauri/src/lib.rs`               | Comandos IPC, plugins, evento Opened de macOS, menú nativo (`build_menu`) |
 | `src-tauri/src/text_io.rs`           | Lógica pura: detección de encoding/EOL al leer, codificación al guardar |
 | `src-tauri/src/main.rs`              | Entry point (no tocar, solo llama a `lib.rs`)                          |
 | `src-tauri/tauri.conf.json`          | Ventana, bundle, asociaciones de archivo                               |
@@ -55,6 +55,7 @@ Idiomas: **código, comentarios y strings de UI en inglés; documentación en es
 | Evento      | Payload  | Emisores                                                            |
 | ----------- | -------- | ------------------------------------------------------------------- |
 | `open-file` | `string` (path absoluto) | 1) `RunEvent::Opened` en macOS (app corriendo), 2) callback de single-instance (segunda invocación CLI) |
+| `menu-action` | `string` (id del ítem: `"new"`\|`"open"`\|`"save"`\|`"save_as"`\|`"shortcuts"`) | `on_menu_event` en `build_menu()`, ante click o accelerator de un ítem del menú nativo |
 
 Todo camino de apertura del frontend converge en `openFile()` de `main.ts`, que aplica el guard de cambios sin guardar y actualiza recientes. **No crear caminos alternativos que llamen a `read_file` sin pasar por ahí** (única excepción: `restoreSession()` y `reloadFromDisk()`, que son deliberadamente silenciosos).
 
@@ -130,6 +131,8 @@ Para agregar un tema:
 8. Las **asociaciones de archivo** solo existen con la app instalada desde el bundle; en dev no funcionan.
 9. **La detección de Windows-1252 es una heurística de último recurso**, no un chardet real: si los bytes no tienen BOM y no son UTF-8 válido, se asume Windows-1252 porque nunca falla al decodificar (mapea todo byte a algún codepoint). Para textos legado que no sean de alfabeto latino (Shift-JIS, etc.) el resultado va a ser basura legible-pero-incorrecta, no un error. Es una decisión consciente de simplicidad (ver ROADMAP), no un bug.
 10. **El chequeo de tamaño en `read_file` va antes de `std::fs::read`, no después.** El orden importa: es lo que evita cargar un archivo de varios GB a memoria solo para descartarlo. No "simplificar" juntando ambos pasos.
+11. **No agregar `PredefinedMenuItem::quit` al menú sin resolver esto antes**: en Tauri, Quit saltea `onCloseRequested` y llama `exit(0)` directo — el guard de "cambios sin guardar" nunca se ejecuta. Bug conocido y abierto en Tauri (issues #3124/#7586/#13511). Por eso hoy no hay Quit en el menú.
+12. **Cada accelerator del menú nativo (`build_menu`) es dueño único de su atajo.** `Mod+N/O/S/Shift+S` fueron sacados a propósito del keydown handler de `main.ts` — dejar ambos caminos activos arriesga doble disparo (ej. dos diálogos de "Save as" a la vez).
 
 ## Verificación
 

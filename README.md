@@ -34,6 +34,7 @@ Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) 
 | `Mod + =` / `Mod + -` / `Mod + 0` | Tamaño de fuente    |
 | `Mod + D`                         | Seleccionar siguiente ocurrencia |
 | `Alt + Z`                         | Word wrap on/off    |
+| `Mod + /`                         | Mostrar atajos de teclado |
 
 ## Abrir archivos
 

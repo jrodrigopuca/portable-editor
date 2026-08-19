@@ -107,3 +107,82 @@ body[data-dark="false"] #statusbar {
   color: #57606a;
   border-color: #d0d7de;
 }
+
+#shortcuts-panel {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#shortcuts-panel[hidden] {
+  display: none;
+}
+
+#shortcuts-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+#shortcuts-content {
+  position: relative;
+  width: 90%;
+  max-width: 420px;
+  max-height: 80%;
+  overflow-y: auto;
+  border-radius: 8px;
+  padding: 20px 24px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+#shortcuts-content h2 {
+  font-size: 14px;
+  margin-bottom: 14px;
+}
+
+#shortcuts-content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+#shortcuts-content td {
+  padding: 5px 0;
+}
+
+#shortcuts-content td.shortcut-keys {
+  font-family: var(--editor-font);
+  white-space: nowrap;
+  padding-right: 20px;
+  opacity: 0.85;
+}
+
+#btn-close-shortcuts {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-family: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+#btn-close-shortcuts:hover {
+  opacity: 1;
+}
+
+body[data-dark="true"] #shortcuts-content {
+  background: #21252b;
+  color: #9da5b4;
+}
+
+body[data-dark="false"] #shortcuts-content {
+  background: #ffffff;
+  color: #24292f;
+}
