@@ -14,6 +14,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 - Indicador de archivo borrado/renombrado bajo los pies: la status bar muestra "(deleted on disk)" y el próximo guardado se comporta como "Save as" en vez de reescribir un path que ya no existe.
 - Menú nativo: **File** (New/Open/Save/Save As, con sus atajos) y **Help** (Keyboard Shortcuts — abre un panel propio en el editor con la lista completa, adaptada al teclado del SO — y About, con la versión real del build).
 - Panel de búsqueda/reemplazo (`Mod+F`) tematizado: antes usaba el estilo default de CodeMirror, ahora es consistente con los 4 temas del editor (incluido One Dark).
+- Detección de indentación (tabs/espacios y ancho) al abrir un archivo, con botón en la status bar para cambiarla manualmente. Afecta código nuevo, no reconvierte el existente.
 
 ## [0.1.0] - 2026-08-19
 

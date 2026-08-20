@@ -4,6 +4,13 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { createEditor, PLAIN_TEXT_LABEL } from "./editor";
+import {
+  detectIndent,
+  type IndentInfo,
+  indentLabel,
+  indentUnitString,
+  nextIndentPreset,
+} from "./indent";
 import { basename } from "./paths";
 import { clampFontSize, FONT_DEFAULT, parseFontSize } from "./prefs";
 import {
@@ -47,6 +54,7 @@ const el = {
   language: byId<HTMLSpanElement>("language"),
   encoding: byId<HTMLSpanElement>("encoding"),
   eol: byId<HTMLSpanElement>("eol"),
+  btnIndent: byId<HTMLButtonElement>("btn-indent"),
   themeSelect: byId<HTMLSelectElement>("theme-select"),
   shortcutsPanel: byId<HTMLDivElement>("shortcuts-panel"),
   shortcutsBackdrop: byId<HTMLDivElement>("shortcuts-backdrop"),
@@ -73,6 +81,7 @@ interface DocState {
   eol: Eol;
   /** True once a poll finds `path` gone (deleted or renamed elsewhere). */
   missing: boolean;
+  indent: IndentInfo;
 }
 
 const doc: DocState = {
@@ -82,6 +91,7 @@ const doc: DocState = {
   encoding: ENCODING_UTF8,
   eol: EOL.LF,
   missing: false,
+  indent: detectIndent(""),
 };
 const lastCursor = { line: 1, col: 1 };
 let fontSize = parseFontSize(localStorage.getItem(FONT_KEY));
@@ -112,6 +122,11 @@ function updateStatus(): void {
   el.encoding.textContent = doc.encoding;
   el.eol.textContent = doc.eol;
   void appWindow.setTitle(`${doc.dirty ? "● " : ""}${fileLabel()} — ${APP_NAME}`);
+}
+
+function applyIndent(): void {
+  editor.setIndentUnit(indentUnitString(doc.indent));
+  el.btnIndent.textContent = indentLabel(doc.indent);
 }
 
 async function applyLanguage(): Promise<void> {
@@ -195,8 +210,10 @@ async function newFile(): Promise<void> {
   doc.encoding = ENCODING_UTF8;
   doc.eol = EOL.LF;
   doc.missing = false;
+  doc.indent = detectIndent("");
   updateStatus();
   await applyLanguage();
+  applyIndent();
   editor.focus();
 }
 
@@ -210,7 +227,9 @@ async function openFile(presetPath?: string): Promise<void> {
     syncRecentCursor();
     doc.encoding = file.encoding;
     doc.eol = file.eol;
+    doc.indent = detectIndent(file.contents);
     editor.setText(file.contents);
+    applyIndent();
     await afterFileLoaded(path);
     editor.focus();
   } catch (err) {
@@ -227,7 +246,9 @@ async function restoreSession(): Promise<void> {
     const file = await invoke<DecodedFile>("read_file", { path: last.path });
     doc.encoding = file.encoding;
     doc.eol = file.eol;
+    doc.indent = detectIndent(file.contents);
     editor.setText(file.contents);
+    applyIndent();
     await afterFileLoaded(last.path);
     editor.setCursor(last.line, last.col);
   } catch {
@@ -286,7 +307,9 @@ async function reloadFromDisk(): Promise<void> {
   const file = await invoke<DecodedFile>("read_file", { path: doc.path });
   doc.encoding = file.encoding;
   doc.eol = file.eol;
+  doc.indent = detectIndent(file.contents);
   editor.replaceText(file.contents);
+  applyIndent();
   doc.dirty = false;
   updateStatus();
 }
@@ -483,6 +506,11 @@ el.btnWrap.addEventListener("click", () => {
   toggleWrap();
   editor.focus();
 });
+el.btnIndent.addEventListener("click", () => {
+  doc.indent = nextIndentPreset(doc.indent);
+  applyIndent();
+  editor.focus();
+});
 
 el.recentSelect.addEventListener("change", () => {
   const path = el.recentSelect.value;
@@ -530,6 +558,7 @@ el.shortcutsBackdrop.addEventListener("click", () => closeShortcuts());
 async function init(): Promise<void> {
   applyFont();
   applyWrap();
+  applyIndent();
   initThemes();
   renderRecent();
   renderShortcuts();

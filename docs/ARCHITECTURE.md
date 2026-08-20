@@ -32,6 +32,7 @@ Idiomas: **código, comentarios y strings de UI en inglés; documentación en es
 | `src/main.ts`                        | Estado del documento, acciones open/save, recientes, atajos, wiring UI |
 | `src/editor.ts`                      | CodeMirror encapsulado tras `EditorHandle`; único módulo que importa CodeMirror |
 | `src/themes.ts`                      | Registro de temas (`THEMES`), paletas y `buildTheme()`                 |
+| `src/indent.ts`                      | Lógica pura: detección de indentación (tabs/spaces, ancho), presets    |
 | `src/styles.css`                     | Layout, status bar, variables CSS de fuente                            |
 | `src-tauri/src/lib.rs`               | Comandos IPC, plugins, evento Opened de macOS, menú nativo (`build_menu`) |
 | `src-tauri/src/text_io.rs`           | Lógica pura: detección de encoding/EOL al leer, codificación al guardar |
@@ -63,7 +64,7 @@ Todo camino de apertura del frontend converge en `openFile()` de `main.ts`, que 
 
 ### En memoria (`main.ts`)
 
-- `doc: DocState` — `{ path, dirty, mtime, encoding, eol, missing }`. Única fuente de verdad sobre el archivo abierto. `encoding` es solo para mostrar en la status bar: tras cada guardado exitoso se resetea a `"UTF-8"` (política de guardado). `eol` sí importa funcionalmente: viaja de vuelta a `write_file` en cada guardado. `missing` lo pone `checkExternalChange()` cuando `file_mtime` falla (archivo borrado/renombrado); mientras esté en `true`, `saveFile()` se comporta como `saveFileAs()`.
+- `doc: DocState` — `{ path, dirty, mtime, encoding, eol, missing, indent }`. Única fuente de verdad sobre el archivo abierto. `encoding` es solo para mostrar en la status bar: tras cada guardado exitoso se resetea a `"UTF-8"` (política de guardado). `eol` sí importa funcionalmente: viaja de vuelta a `write_file` en cada guardado. `missing` lo pone `checkExternalChange()` cuando `file_mtime` falla (archivo borrado/renombrado); mientras esté en `true`, `saveFile()` se comporta como `saveFileAs()`. `indent` se re-detecta (`indent.ts`) en cada apertura/recarga; no persiste entre sesiones — es una propiedad del archivo, no una preferencia global.
 - `lastCursor` — última posición conocida, alimentada por el callback `onCursorMoved`.
 
 ### Persistido (localStorage, prefijo `portable-editor:`)
@@ -134,6 +135,7 @@ Para agregar un tema:
 11. **No agregar `PredefinedMenuItem::quit` al menú sin resolver esto antes**: en Tauri, Quit saltea `onCloseRequested` y llama `exit(0)` directo — el guard de "cambios sin guardar" nunca se ejecuta. Bug conocido y abierto en Tauri (issues #3124/#7586/#13511). Por eso hoy no hay Quit en el menú.
 12. **Cada accelerator del menú nativo (`build_menu`) es dueño único de su atajo.** `Mod+N/O/S/Shift+S` fueron sacados a propósito del keydown handler de `main.ts` — dejar ambos caminos activos arriesga doble disparo (ej. dos diálogos de "Save as" a la vez).
 13. **El panel de búsqueda de CodeMirror (`Mod+F`) se tematiza en `styles.css` (`#editor .cm-panel.cm-search`), no en `themes.ts`.** Es chrome del programa, no contenido del editor — mismo criterio que la status bar. No moverlo a `buildTheme()`: haría 4 variantes ligeramente distintas en vez de una consistente, y dejaría afuera a One Dark (no pasa por `buildTheme()`). El botón de cerrar (`button[name="close"]`) viene `position: absolute` del base theme de CM6; hay que pisarlo a `static` o `margin-left: auto` no hace nada.
+14. **El botón de indentación de la status bar NO reconvierte el código existente**, solo configura cómo se indenta lo que se escribe de ahora en más (`indentUnit`). Es comportamiento estándar (VS Code también lo separa en un comando aparte) — no "arreglarlo" para que reformatee el documento sin evaluar primero el riesgo de corromper líneas de alineación (ver ROADMAP Fase 4, ítem 3).
 
 ## Verificación
 

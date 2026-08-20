@@ -1,5 +1,5 @@
 import { indentWithTab } from "@codemirror/commands";
-import { LanguageDescription } from "@codemirror/language";
+import { indentUnit, LanguageDescription } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
@@ -21,6 +21,7 @@ export interface EditorHandle {
   setCursor: (line: number, col: number) => void;
   detectLanguage: (path: string | null) => Promise<string>;
   setPlainText: () => void;
+  setIndentUnit: (unit: string) => void;
   focus: () => void;
 }
 
@@ -36,9 +37,11 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks): E
   const themeConfig = new Compartment();
   const languageConfig = new Compartment();
   const wrapConfig = new Compartment();
+  const indentConfig = new Compartment();
   let currentTheme: Extension = themeById(DEFAULT_THEME_ID).extension;
   let currentLanguage: Extension = [];
   let currentWrap = false;
+  let currentIndentUnit = "  ";
   let languageToken = 0;
 
   const buildExtensions = (): Extension[] => [
@@ -48,6 +51,7 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks): E
     themeConfig.of(currentTheme),
     languageConfig.of(currentLanguage),
     wrapConfig.of(currentWrap ? EditorView.lineWrapping : []),
+    indentConfig.of(indentUnit.of(currentIndentUnit)),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) callbacks.onDocChanged();
       if (update.docChanged || update.selectionSet) {
@@ -132,6 +136,11 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks): E
     setPlainText: () => {
       languageToken++;
       clearLanguage();
+    },
+
+    setIndentUnit: (unit) => {
+      currentIndentUnit = unit;
+      view.dispatch({ effects: indentConfig.reconfigure(indentUnit.of(currentIndentUnit)) });
     },
 
     focus: () => view.focus(),

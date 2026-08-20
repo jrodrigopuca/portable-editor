@@ -55,3 +55,4 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] `Mod+/` (o Help → Keyboard Shortcuts) abre el panel de atajos; `Esc`, la ✕ y el click afuera lo cierran
 - [ ] `Mod+F` abre el panel de búsqueda con estilo consistente en los 4 temas (no el gris default de CodeMirror); la ✕ de cerrar se ve bien, no se superpone con otros controles
 - [ ] `Mod+Alt+G` abre "ir a línea"
+- [ ] Abrir un archivo con indentación de 4 espacios → botón de status bar muestra "Spaces: 4"; con tabs → "Tabs"; click cicla 2→4→8→Tabs
