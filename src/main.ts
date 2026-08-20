@@ -211,6 +211,42 @@ function renderRecent(): void {
 
 // ---------- Open / save ----------
 
+/** Best-effort cleanup — a failed clear just means a stale recovery file. */
+async function clearRecovery(path: string | null): Promise<void> {
+  if (path === null) return;
+  try {
+    await invoke("clear_recovery", { path });
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Compares `diskContents` against any leftover recovery snapshot for `path`
+ * (from a crash/force-quit between autosaves — see AUTOSAVE_INTERVAL_MS
+ * below). Identical or missing → just cleans up and returns `diskContents`.
+ * Different → asks before using the recovered version.
+ */
+async function checkRecovery(path: string, diskContents: string): Promise<string> {
+  let recovered: string | null;
+  try {
+    recovered = await invoke<string | null>("read_recovery", { path });
+  } catch {
+    return diskContents;
+  }
+  if (recovered === null || recovered === diskContents) return diskContents;
+
+  const useRecovered = await ask(
+    "portable-editor didn't close cleanly last time this file was open. Recover the unsaved changes?",
+    { title: APP_NAME, kind: "warning" },
+  );
+  if (!useRecovered) {
+    void clearRecovery(path);
+    return diskContents;
+  }
+  return recovered;
+}
+
 async function afterFileLoaded(path: string): Promise<void> {
   doc.path = path;
   doc.dirty = false;
@@ -224,6 +260,7 @@ async function afterFileLoaded(path: string): Promise<void> {
 
 async function newFile(): Promise<void> {
   if (!(await confirmDiscard())) return;
+  void clearRecovery(doc.path);
   syncRecentCursor();
   editor.setText("");
   doc.path = null;
@@ -248,18 +285,24 @@ async function newFile(): Promise<void> {
 async function openNewFileAt(path: string, external = false): Promise<void> {
   if (!(await confirmDiscard())) return;
   if (external && !(await confirmExternalReplace(path))) return;
+  void clearRecovery(doc.path);
   syncRecentCursor();
-  editor.setText("");
+  const contents = await checkRecovery(path, "");
+  editor.setText(contents);
   doc.path = path;
   doc.dirty = false;
   doc.mtime = null;
   doc.encoding = ENCODING_UTF8;
   doc.eol = EOL.LF;
   doc.missing = false;
-  doc.indent = detectIndent("");
+  doc.indent = detectIndent(contents);
   updateStatus();
   await applyLanguage();
   applyIndent();
+  if (contents !== "") {
+    doc.dirty = true;
+    updateStatus();
+  }
   editor.focus();
 }
 
@@ -271,13 +314,19 @@ async function openFile(presetPath?: string, external = false): Promise<void> {
 
   try {
     const file = await invoke<DecodedFile>("read_file", { path });
+    void clearRecovery(doc.path);
     syncRecentCursor();
     doc.encoding = file.encoding;
     doc.eol = file.eol;
-    doc.indent = detectIndent(file.contents);
-    editor.setText(file.contents);
+    const contents = await checkRecovery(path, file.contents);
+    doc.indent = detectIndent(contents);
+    editor.setText(contents);
     applyIndent();
     await afterFileLoaded(path);
+    if (contents !== file.contents) {
+      doc.dirty = true;
+      updateStatus();
+    }
     editor.focus();
   } catch (err) {
     await message(String(err), { title: APP_NAME, kind: "error" });
@@ -293,11 +342,16 @@ async function restoreSession(): Promise<void> {
     const file = await invoke<DecodedFile>("read_file", { path: last.path });
     doc.encoding = file.encoding;
     doc.eol = file.eol;
-    doc.indent = detectIndent(file.contents);
-    editor.setText(file.contents);
+    const contents = await checkRecovery(last.path, file.contents);
+    doc.indent = detectIndent(contents);
+    editor.setText(contents);
     applyIndent();
     await afterFileLoaded(last.path);
     editor.setCursor(last.line, last.col);
+    if (contents !== file.contents) {
+      doc.dirty = true;
+      updateStatus();
+    }
   } catch {
     forgetRecent(last.path);
   }
@@ -328,6 +382,7 @@ async function writeTo(path: string): Promise<boolean> {
     doc.dirty = false;
     // Save policy: always UTF-8 on disk, regardless of the source encoding.
     doc.encoding = ENCODING_UTF8;
+    void clearRecovery(path);
     return true;
   } catch (err) {
     await message(String(err), { title: APP_NAME, kind: "error" });
@@ -359,6 +414,25 @@ async function reloadFromDisk(): Promise<void> {
   applyIndent();
   doc.dirty = false;
   updateStatus();
+  // Disk now matches memory: any pending recovery snapshot is stale.
+  void clearRecovery(doc.path);
+}
+
+// ---------- Autosave (crash/force-quit recovery) ----------
+
+// Dumps the buffer to a recovery file every 10s while dirty, so an
+// interruption between saves (crash, force-quit, power loss) loses at most
+// this much work. Only for files with a real path — untitled buffers have no
+// stable key to recover against on the next launch (see ROADMAP Fase 4).
+const AUTOSAVE_INTERVAL_MS = 10_000;
+
+async function autosaveTick(): Promise<void> {
+  if (doc.path === null || !doc.dirty) return;
+  try {
+    await invoke("save_recovery", { path: doc.path, contents: editor.getText() });
+  } catch {
+    // Best-effort safety net; a failed autosave shouldn't interrupt editing.
+  }
 }
 
 let checkingExternal = false;
@@ -634,6 +708,7 @@ async function init(): Promise<void> {
     await restoreSession();
   }
   window.setInterval(() => void checkExternalChange(), MTIME_POLL_MS);
+  window.setInterval(() => void autosaveTick(), AUTOSAVE_INTERVAL_MS);
   window.addEventListener("focus", () => void checkExternalChange());
   editor.focus();
 }

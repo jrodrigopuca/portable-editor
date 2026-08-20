@@ -20,6 +20,7 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] `portable-editor archivo-que-no-existe.txt` abre un editor vacío con ese nombre en la status bar (no otro archivo, no error) — guardar crea el archivo en ese path sin pedir ubicación
 - [ ] Con un archivo abierto y SIN cambios sin guardar: `portable-editor otro.txt` desde otra terminal pregunta antes de reemplazarlo (no lo hace en silencio)
 - [ ] (macOS) Help → "Install 'portable-editor' Command" instala el symlink; `which portable-editor` lo resuelve desde una terminal nueva
+- [ ] Editar un archivo sin guardar, esperar >10s, matar el proceso (`kill -9`, no cerrar normal) → reabrir el mismo archivo pregunta si recuperar; aceptar muestra el contenido editado con el punto de "sin guardar"; guardar limpia el recovery
 - [ ] (Solo bundle instalado) "Open with..." desde Finder/file manager funciona
 - [ ] Abrir un `.ts` o `.py` → highlighting correcto y lenguaje en la status bar
 

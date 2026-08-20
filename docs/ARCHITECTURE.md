@@ -36,6 +36,7 @@ Idiomas: **código, comentarios y strings de UI en inglés; documentación en es
 | `src/styles.css`                     | Layout, status bar, variables CSS de fuente                            |
 | `src-tauri/src/lib.rs`               | Comandos IPC, plugins, evento Opened de macOS, menú nativo (`build_menu`) |
 | `src-tauri/src/text_io.rs`           | Lógica pura: detección de encoding/EOL al leer, codificación al guardar |
+| `src-tauri/src/recovery.rs`          | Lógica pura: clave de recovery derivada del path (hash)                 |
 | `src-tauri/src/main.rs`              | Entry point (no tocar, solo llama a `lib.rs`)                          |
 | `src-tauri/tauri.conf.json`          | Ventana, bundle, asociaciones de archivo                               |
 | `src-tauri/capabilities/default.json`| Permisos IPC del webview                                                |
@@ -51,6 +52,9 @@ Idiomas: **código, comentarios y strings de UI en inglés; documentación en es
 | `file_mtime`   | `(path) -> Result<u64>`                | Millis desde epoch; usado por el polling de cambios externos |
 | `startup_file` | `() -> Option<StartupTarget>`          | `StartupTarget = { path, exists }`. Prioridad: PendingFile (macOS "Open with", `exists` siempre `true`) > argv[1] (resuelto con `resolve_open_arg`, `exists: false` si el path todavía no existe) |
 | `install_cli_command` | `() -> Result<String>`          | Solo macOS (error explicativo en otras plataformas). Symlink de `current_exe()` a `/usr/local/bin/portable-editor`: intenta sin privilegios primero, si falla pide admin vía `osascript` con `quoted form of` (no interpola paths directo en el script — ver trampa #17) |
+| `save_recovery` | `(path, contents) -> Result<()>`    | Dump (no atómico) a `app_data_dir()/recovery/<hash(path)>.recovery`. Llamado cada 10 s si `doc.dirty` (`AUTOSAVE_INTERVAL_MS` en `main.ts`) |
+| `read_recovery` | `(path) -> Result<Option<String>>` | `None` si no hay recovery para ese path |
+| `clear_recovery` | `(path) -> Result<()>`             | Best-effort (ignora si no existe); se llama tras guardar o al descartar cambios explícitamente |
 
 ### Eventos (Rust → frontend, vía `emit`/`listen`)
 
@@ -94,6 +98,15 @@ Poll cada 2 s + al enfocar la ventana (`checkExternalChange`):
 - `file_mtime` falla (archivo borrado o renombrado) → `doc.missing = true`, status bar muestra "(deleted on disk)", sin diálogo (no hay con qué interactuar). Si una siguiente poll vuelve a leer el mtime OK, se limpia solo. Mientras esté `missing`, `saveFile()` redirige a `saveFileAs()` en vez de reescribir un path que ya no existe.
 
 Decisión: polling en vez de watcher nativo (`notify`). Es un solo archivo; un `stat` cada 2 s es gratis y evita una dependencia y el manejo de estado del watcher.
+
+### Recuperación de crash (autosave)
+Cada 10 s (`AUTOSAVE_INTERVAL_MS`), si `doc.dirty` y `doc.path !== null` → `invoke save_recovery`. No es atómico ni crítico: perder un dump a mitad de escritura solo significa recuperar un snapshot un poco más viejo la próxima vez, no corrompe nada real (a diferencia de `write_file`).
+
+Al abrir un archivo (`openFile`, `restoreSession`, `openNewFileAt`) se compara el contenido recién leído del disco contra un posible recovery leftover (`checkRecovery`):
+- Sin recovery, o igual al disco → se usa el disco tal cual, se limpia cualquier recovery viejo.
+- Distinto → pregunta antes de usarlo. Si el usuario acepta, el contenido recuperado reemplaza al del disco y `doc.dirty` se fuerza a `true` (hay que guardarlo para que persista de verdad).
+
+El recovery se limpia (`clearRecovery`) en tres momentos: guardado exitoso (`writeTo`), el usuario elige NO recuperar, o se abandona el documento actual al abrir otro (`confirmDiscard` pasa). **Alcance deliberado**: solo documentos con `doc.path` real. Un buffer 100% untitled (`Mod+N`, nunca asociado a un path) no tiene una clave estable entre lanzamientos de la app — si se pierde antes de guardar, se pierde. Ver ROADMAP para por qué no se cubre.
 
 ### "Open with..." del sistema
 - **Linux**: el path llega por argv → `startup_file` lo resuelve.
@@ -144,6 +157,7 @@ Para agregar un tema:
 15. **`write_file` escribe A TRAVÉS de los symlinks, no sobre ellos.** `resolve_symlink_target()` resuelve el target real antes del `tmp_path`/`rename` — si no existiera ese paso, el `rename()` reemplazaría el symlink mismo por un archivo plano (rompiendo dotfiles manejados con Stow/chezmoi/Nix). No "simplificar" quitando esa resolución.
 16. **`Path::canonicalize()` requiere que el archivo YA exista** — falla con `NotFound` si no. Por eso `resolve_open_arg()` no lo usa solo: intenta `canonicalize()` primero y cae a `std::path::absolute()` (no toca el filesystem, no exige existencia) si falla. No volver a un `.canonicalize().ok()` pelado para resolver argumentos de CLI — eso es exactamente el bug que tenía antes (un `portable-editor archivo-nuevo.txt` se ignoraba en silencio).
 17. **`install_cli_command` pasa el path del ejecutable a `osascript` como argv, no interpolado en el texto del script.** El AppleScript lo shell-quotea con `quoted form of` antes de meterlo en `do shell script ... with administrator privileges`. No "simplificar" volviendo a un `format!("... {path} ...")` armado a mano — eso corre con privilegios de admin, y un path con comillas rompería el escaping (command injection).
+18. **El recovery de autosave va a `app_data_dir()`, no a `localStorage`.** Se evaluó `localStorage` (ya se usa para tema/fuente/wrap/recientes) y se descartó a propósito: es síncrono (bloquearía el hilo de UI en cada dump) y tiene límite de tamaño (~5-10 MB típico) — justo lo que rompería para los archivos de hasta 100 MB que Fase 3 ya soporta. No migrar el recovery a `localStorage` "por consistencia" sin releer esto.
 
 ## Verificación
 

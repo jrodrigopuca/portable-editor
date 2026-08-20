@@ -17,6 +17,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 - Detección de indentación (tabs/espacios y ancho) al abrir un archivo, con botón en la status bar para cambiarla manualmente. Afecta código nuevo, no reconvierte el existente.
 - `cargo test` corre ahora en CI (antes solo `fmt`/`clippy`) — los 8 tests de `text_io.rs` dejan de ser opcionales.
 - Help → "Install 'portable-editor' Command" (macOS): instala el comando en `/usr/local/bin` sin que haya que correr `sudo ln -s` a mano.
+- Recuperación de crash: cada 10s se guarda un snapshot del archivo (si tiene cambios sin guardar) en el directorio de datos de la app. Si portable-editor no cierra limpio (crash, force-quit, corte de luz), la próxima vez que abrís ese archivo te pregunta si querés recuperar lo perdido. Se limpia solo al guardar o al descartar. Solo para archivos con path real, no para buffers 100% nuevos sin guardar.
 
 ### Corregido
 

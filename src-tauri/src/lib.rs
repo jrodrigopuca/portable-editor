@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
+mod recovery;
 mod text_io;
 use text_io::DecodedFile;
 
@@ -67,6 +68,48 @@ fn tmp_path(target: &Path) -> PathBuf {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     target.with_file_name(format!(".{name}.portable-editor.tmp"))
+}
+
+fn recovery_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("recovery");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// Dumps the current buffer for `path` to a recovery file, overwriting any
+/// previous one — a safety net against crashes/force-quits between saves.
+/// Not atomic like `write_file`: losing a recovery write mid-crash just means
+/// recovering an older snapshot next time, not corrupting anything real.
+#[tauri::command]
+fn save_recovery(app: tauri::AppHandle, path: String, contents: String) -> Result<(), String> {
+    let dir = recovery_dir(&app)?;
+    std::fs::write(dir.join(recovery::recovery_key(&path)), contents).map_err(|e| e.to_string())
+}
+
+/// The recovered contents for `path`, if a recovery file exists for it.
+#[tauri::command]
+fn read_recovery(app: tauri::AppHandle, path: String) -> Result<Option<String>, String> {
+    let dir = recovery_dir(&app)?;
+    match std::fs::read_to_string(dir.join(recovery::recovery_key(&path))) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Deletes the recovery file for `path`, if any — called after a real save
+/// or when the user explicitly discards unsaved changes. Best-effort: a
+/// leftover recovery file just means a stale prompt next time, not data loss.
+#[tauri::command]
+fn clear_recovery(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let dir = recovery_dir(&app)?;
+    let _ = std::fs::remove_file(dir.join(recovery::recovery_key(&path)));
+    Ok(())
 }
 
 /// Mtime in milliseconds; the frontend polls it to detect external changes.
@@ -318,7 +361,10 @@ pub fn run() {
             write_file,
             file_mtime,
             startup_file,
-            install_cli_command
+            install_cli_command,
+            save_recovery,
+            read_recovery,
+            clear_recovery
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
