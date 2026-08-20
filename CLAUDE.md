@@ -21,6 +21,7 @@ npm run lint:fix       # Biome con autofix
 npm run typecheck      # tsc --noEmit: OBLIGATORIO tras cambios de TS
 npm run test           # Vitest (tests unitarios de lógica pura)
 cargo fmt              # formatear Rust (en src-tauri/; no compila nada)
+cargo test             # tests unitarios de Rust (en src-tauri/; compila — lo corre el dev, no el agente)
 npm run tauri dev      # correr la app (compila Rust; la lanza el dev, no el agente)
 npm run tauri build    # bundle de producción
 ```
@@ -53,6 +54,6 @@ La lógica pura (recientes, prefs, paths) vive en módulos sin DOM ni Tauri (`sr
 
 ## Al terminar un cambio
 
-1. `npm run lint`, `npm run typecheck` y `npm run test` en verde. Si tocaste Rust: `cargo fmt` (clippy corre en CI).
+1. `npm run lint`, `npm run typecheck` y `npm run test` en verde. Si tocaste Rust: `cargo fmt` y `cargo test` (clippy y `cargo test` también corren en CI).
 2. Si tocaste Rust o config de Tauri, avisar que `tauri dev` recompila (no buildear automáticamente).
 3. Actualizar `README.md` (features/atajos), `docs/ARCHITECTURE.md` (flujos/invariantes) y `CHANGELOG.md` si el cambio los altera.

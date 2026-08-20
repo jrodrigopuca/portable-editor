@@ -97,7 +97,18 @@ Tabs multi-archivo, árbol de archivos, LSP/autocompletado, git integrado, termi
 
 ---
 
-## 6. Fase 5 — Distribución y alcance
+## 6. Hallazgos de revisión externa (2026-08-19)
+
+Dos reviews independientes (agentes `architect` y `stark`) sobre el estado del proyecto post-Fase 4. Ambos convergieron, desde ángulos distintos, en el mismo patrón: fallas silenciosas alrededor de la identidad/integridad del archivo — la app hace algo distinto de lo que el usuario pidió y no lo avisa. `cargo test` en CI (hallazgo de `architect`) ya se resolvió, era gratis. El resto queda **deliberadamente pendiente**: no se implementa ahora, se prioriza según lo que el feedback real de Fase 2/Beta (usuarios externos) confirme que efectivamente importa.
+
+1. **Guardado atómico rompe symlinks** (`architect`, verificado empíricamente) — `write_file` hace `rename()` sobre el target; si es un symlink (común en dotfiles con Stow/chezmoi/Nix), el rename lo reemplaza por un archivo plano, desconectado del original, sin ningún aviso. No está en la lista de "Trampas conocidas" de `ARCHITECTURE.md` todavía — agregarlo ahí es gratis aunque no se arregle el comportamiento.
+2. **CLI con archivo inexistente se ignora en silencio** (`architect`, verificado) — `startup_file` y el callback de single-instance usan `.canonicalize().ok()`, que descarta el error si el archivo no existe todavía. En vez de crear el archivo (como vim/nano/code) o avisar, cae a `restoreSession()` y abre otro archivo sin decir nada.
+3. **Instancia única fusiona "un documento a la vez" con "un proceso a la vez"** (`stark`) — doble click en un segundo archivo desde Finder reemplaza el archivo abierto sin diálogo si no tenía cambios sin guardar (`confirmDiscard()` solo dispara con `dirty`). Cuestiona si el guardrail de identidad es realmente "un buffer por ventana" (compatible con N ventanas, como TextEdit/gedit) o quedó soldado a "un proceso por sistema" sin que nadie lo decidiera así explícitamente. El más caro de revertir de los tres — amerita charla aparte, no un fix de apuro.
+4. **Fallback a Windows-1252 sin alarma fuerte** (`stark`) — para texto no latino (Shift-JIS, etc.) decodifica sin error, se ve legible-pero-incorrecto, y el guardado atómico reescribe el archivo corrompido sin aviso destacado. Relacionado con la trampa #9 ya documentada, pero el punto nuevo es que hoy no hay ninguna señal *fuerte* (más que el label discreto de la status bar) cuando la heurística cae al peor caso.
+
+---
+
+## 7. Fase 5 — Distribución y alcance
 
 En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, descargas):
 
@@ -109,7 +120,7 @@ En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, de
 
 ---
 
-## 7. Reglas de decisión transversales
+## 8. Reglas de decisión transversales
 
 - **Robustez > features.** Un bug de pérdida de datos vale más que diez features nuevas.
 - **Presupuesto de complejidad:** cada dependencia nueva (npm o crate) se justifica por escrito en el PR. El proyecto se mantiene entendible por UNA persona en una tarde.

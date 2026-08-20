@@ -136,11 +136,12 @@ Para agregar un tema:
 12. **Cada accelerator del menú nativo (`build_menu`) es dueño único de su atajo.** `Mod+N/O/S/Shift+S` fueron sacados a propósito del keydown handler de `main.ts` — dejar ambos caminos activos arriesga doble disparo (ej. dos diálogos de "Save as" a la vez).
 13. **El panel de búsqueda de CodeMirror (`Mod+F`) se tematiza en `styles.css` (`#editor .cm-panel.cm-search`), no en `themes.ts`.** Es chrome del programa, no contenido del editor — mismo criterio que la status bar. No moverlo a `buildTheme()`: haría 4 variantes ligeramente distintas en vez de una consistente, y dejaría afuera a One Dark (no pasa por `buildTheme()`). El botón de cerrar (`button[name="close"]`) viene `position: absolute` del base theme de CM6; hay que pisarlo a `static` o `margin-left: auto` no hace nada.
 14. **El botón de indentación de la status bar NO reconvierte el código existente**, solo configura cómo se indenta lo que se escribe de ahora en más (`indentUnit`). Es comportamiento estándar (VS Code también lo separa en un comando aparte) — no "arreglarlo" para que reformatee el documento sin evaluar primero el riesgo de corromper líneas de alineación (ver ROADMAP Fase 4, ítem 3).
+15. **El guardado atómico (`write_file`) rompe symlinks**: `rename()` sobre un target que es symlink lo reemplaza por un archivo plano, desconectado del original — no escribe "a través" del link. Afecta dotfiles manejados con Stow/chezmoi/Nix. Hallazgo de revisión externa (ver ROADMAP, "Hallazgos de revisión externa"), deliberadamente sin arreglar todavía — no lo "arregles" de pasada sin leer esa sección primero.
 
 ## Verificación
 
 - Frontend: `npm run lint` (Biome), `npm run typecheck` (tsc) y `npm run test` (Vitest) — los tres en verde antes de dar por bueno un cambio.
-- Rust: `cargo fmt` local; `cargo clippy -- -D warnings` corre en CI (compila, así que localmente lo corre el dev cuando quiere).
+- Rust: `cargo fmt` local; `cargo clippy -- -D warnings` y `cargo test` corren en CI (ambos compilan, así que localmente los corre el dev cuando quiere).
 - CI (`.github/workflows/ci.yml`): todo lo anterior en cada push/PR a main. El workflow de release es aparte (`release.yml`).
 - La lógica pura testeable vive separada del wiring: `src/recent.ts`, `src/prefs.ts`, `src/paths.ts` (sin DOM ni Tauri) con sus `*.test.ts` al lado. `main.ts` solo orquesta.
 - Smoke test manual pre-release: `docs/SMOKE-TEST.md`.

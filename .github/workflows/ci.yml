@@ -1,5 +1,5 @@
-# Quality gate: lint, typecheck and unit tests for the frontend; fmt and
-# clippy for the Rust backend. Runs on every push/PR to main.
+# Quality gate: lint, typecheck and unit tests for the frontend; fmt, clippy
+# and unit tests for the Rust backend. Runs on every push/PR to main.
 name: CI
 
 on:
@@ -63,4 +63,8 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
+
+      - name: Unit tests
+        run: cargo test
         working-directory: src-tauri
