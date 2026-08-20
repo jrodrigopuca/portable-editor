@@ -1,3 +1,4 @@
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
@@ -27,9 +28,13 @@ fn read_file(path: String) -> Result<DecodedFile, String> {
 /// Atomic write: temp file in the same directory + rename (atomic on POSIX),
 /// so a crash mid-write never leaves the file corrupted. Always writes UTF-8,
 /// restoring the given line ending convention (see `text_io::encode_with_eol`).
+///
+/// Writes through symlinks instead of replacing them: `rename()` on a
+/// symlink target replaces the link itself, which would silently disconnect
+/// dotfiles managed with Stow/chezmoi/Nix from their real file.
 #[tauri::command]
 fn write_file(path: String, contents: String, eol: String) -> Result<(), String> {
-    let target = PathBuf::from(&path);
+    let target = resolve_symlink_target(&PathBuf::from(&path));
     let tmp = tmp_path(&target);
     let bytes = text_io::encode_with_eol(&contents, &eol);
     std::fs::write(&tmp, &bytes).map_err(|e| format!("Could not save {path}: {e}"))?;
@@ -40,6 +45,20 @@ fn write_file(path: String, contents: String, eol: String) -> Result<(), String>
         let _ = std::fs::remove_file(&tmp);
         format!("Could not save {path}: {e}")
     })
+}
+
+/// If `path` is a symlink, resolves it to the file it ultimately points to.
+/// Falls back to `path` itself otherwise: not a symlink, doesn't exist yet
+/// (new file), or a broken link (`canonicalize` fails) — in the broken-link
+/// case this deliberately replaces the dangling link with a real file rather
+/// than erroring out.
+fn resolve_symlink_target(path: &Path) -> PathBuf {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+        }
+        _ => path.to_path_buf(),
+    }
 }
 
 fn tmp_path(target: &Path) -> PathBuf {
@@ -163,21 +182,50 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-/// File to open on startup: whatever arrived via the OS "Open with..." first,
-/// otherwise the first CLI argument (`portable-editor file.txt`).
+/// A path to open on startup or via "Open with...", plus whether it already
+/// exists — `false` means "create a new file here" (e.g. `portable-editor
+/// notes.md` where notes.md doesn't exist yet, same as vim/nano/code).
+#[derive(Serialize, Clone)]
+struct StartupTarget {
+    path: String,
+    exists: bool,
+}
+
+/// Resolves a CLI argument to an absolute path relative to `base_dir`,
+/// without requiring the file to exist. Plain `canonicalize()` fails (and
+/// used to be silently swallowed here) for a file that doesn't exist yet —
+/// the normal "create a new file at this path" flow every terminal editor
+/// supports — so this falls back to `std::path::absolute` in that case.
+fn resolve_open_arg(base_dir: &Path, arg: &str) -> Option<StartupTarget> {
+    let candidate = base_dir.join(arg);
+    if let Ok(canon) = candidate.canonicalize() {
+        return Some(StartupTarget {
+            path: canon.to_string_lossy().into_owned(),
+            exists: true,
+        });
+    }
+    let absolute = std::path::absolute(&candidate).ok()?;
+    Some(StartupTarget {
+        path: absolute.to_string_lossy().into_owned(),
+        exists: false,
+    })
+}
+
+/// File to open on startup: whatever arrived via the OS "Open with..." first
+/// (always an existing file — the OS wouldn't hand us one that isn't),
+/// otherwise the first CLI argument (`portable-editor file.txt`), which may
+/// not exist yet.
 #[tauri::command]
-fn startup_file(pending: tauri::State<PendingFile>) -> Option<String> {
+fn startup_file(pending: tauri::State<PendingFile>) -> Option<StartupTarget> {
     if let Some(path) = pending.0.lock().unwrap().take() {
-        return Some(path);
+        return Some(StartupTarget { path, exists: true });
     }
     let arg = std::env::args().nth(1)?;
     if arg.starts_with('-') {
         return None;
     }
-    PathBuf::from(&arg)
-        .canonicalize()
-        .ok()
-        .map(|p| p.to_string_lossy().into_owned())
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    resolve_open_arg(&cwd, &arg)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -192,8 +240,8 @@ pub fn run() {
                 let _ = window.set_focus();
             }
             if let Some(arg) = args.into_iter().nth(1).filter(|a| !a.starts_with('-')) {
-                if let Ok(path) = Path::new(&cwd).join(arg).canonicalize() {
-                    let _ = app.emit("open-file", path.to_string_lossy().into_owned());
+                if let Some(target) = resolve_open_arg(Path::new(&cwd), &arg) {
+                    let _ = app.emit("open-file", target);
                 }
             }
         }))
@@ -224,7 +272,7 @@ pub fn run() {
                 {
                     let path = path.to_string_lossy().into_owned();
                     *app.state::<PendingFile>().0.lock().unwrap() = Some(path.clone());
-                    let _ = app.emit("open-file", path);
+                    let _ = app.emit("open-file", StartupTarget { path, exists: true });
                 }
             }
             #[cfg(not(target_os = "macos"))]

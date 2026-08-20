@@ -73,6 +73,12 @@ interface DecodedFile {
   eol: Eol;
 }
 
+/** Shape of `startup_file`'s return and the `open-file` event payload. */
+interface StartupTarget {
+  path: string;
+  exists: boolean;
+}
+
 interface DocState {
   path: string | null;
   dirty: boolean;
@@ -141,6 +147,22 @@ async function applyLanguage(): Promise<void> {
 async function confirmDiscard(): Promise<boolean> {
   if (!doc.dirty) return true;
   return ask("You have unsaved changes. Discard them?", { title: APP_NAME, kind: "warning" });
+}
+
+/**
+ * Extra guard for opens triggered from OUTSIDE the app (second CLI
+ * invocation, "Open with..." while running): unlike confirmDiscard(), this
+ * also asks before replacing a real, unedited file. The user didn't choose
+ * this from inside the app, so "nothing unsaved" isn't consent to swap out
+ * what's currently on screen — single-instance means there's only one
+ * window, so an external open would otherwise silently replace it.
+ */
+async function confirmExternalReplace(incomingPath: string): Promise<boolean> {
+  if (doc.path === null || doc.dirty) return true; // confirmDiscard() already covers dirty
+  return ask(`Open "${basename(incomingPath)}"? This replaces "${fileLabel()}" in this window.`, {
+    title: APP_NAME,
+    kind: "warning",
+  });
 }
 
 // ---------- Recent files (pure logic lives in recent.ts) ----------
@@ -217,8 +239,33 @@ async function newFile(): Promise<void> {
   editor.focus();
 }
 
-async function openFile(presetPath?: string): Promise<void> {
+/**
+ * A CLI/"Open with..." path that doesn't exist yet (e.g. `portable-editor
+ * notes.md` before notes.md is created) — same as `newFile()` but keeps the
+ * path, so Save writes straight there instead of prompting Save As. Matches
+ * vim/nano/code: opening a nonexistent path creates it, doesn't error out.
+ */
+async function openNewFileAt(path: string, external = false): Promise<void> {
   if (!(await confirmDiscard())) return;
+  if (external && !(await confirmExternalReplace(path))) return;
+  syncRecentCursor();
+  editor.setText("");
+  doc.path = path;
+  doc.dirty = false;
+  doc.mtime = null;
+  doc.encoding = ENCODING_UTF8;
+  doc.eol = EOL.LF;
+  doc.missing = false;
+  doc.indent = detectIndent("");
+  updateStatus();
+  await applyLanguage();
+  applyIndent();
+  editor.focus();
+}
+
+async function openFile(presetPath?: string, external = false): Promise<void> {
+  if (!(await confirmDiscard())) return;
+  if (external && presetPath !== undefined && !(await confirmExternalReplace(presetPath))) return;
   const path = presetPath ?? (await openDialog({ multiple: false, title: "Open file" }));
   if (typeof path !== "string") return;
 
@@ -527,7 +574,10 @@ void getCurrentWebview().onDragDropEvent((event) => {
 
 // "Open with..." while the app is running (macOS) or a second CLI invocation
 // (single-instance): both emit open-file from Rust
-void listen<string>("open-file", (event) => void openFile(event.payload));
+void listen<StartupTarget>("open-file", (event) => {
+  const { path, exists } = event.payload;
+  void (exists ? openFile(path, true) : openNewFileAt(path, true));
+});
 
 // Native File menu clicks/accelerators (see src-tauri/src/lib.rs build_menu)
 void listen<string>("menu-action", (event) => {
@@ -562,9 +612,9 @@ async function init(): Promise<void> {
   initThemes();
   renderRecent();
   renderShortcuts();
-  const startup = await invoke<string | null>("startup_file");
+  const startup = await invoke<StartupTarget | null>("startup_file");
   if (startup !== null) {
-    await openFile(startup);
+    await (startup.exists ? openFile(startup.path, true) : openNewFileAt(startup.path, true));
   } else {
     updateStatus();
     await applyLanguage();

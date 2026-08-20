@@ -17,6 +17,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 - Detección de indentación (tabs/espacios y ancho) al abrir un archivo, con botón en la status bar para cambiarla manualmente. Afecta código nuevo, no reconvierte el existente.
 - `cargo test` corre ahora en CI (antes solo `fmt`/`clippy`) — los 8 tests de `text_io.rs` dejan de ser opcionales.
 
+### Corregido
+
+- Guardar un archivo abierto a través de un symlink (dotfiles con Stow/chezmoi/Nix) ya no reemplaza el link por un archivo plano — `write_file` ahora resuelve el symlink y escribe a través de él, preservándolo.
+- Abrir por CLI o "Open with..." un archivo que todavía no existe (`portable-editor nuevo.txt`) ya no se ignora en silencio — abre un editor vacío listo para guardar en ese path, como vim/nano/code.
+- Una segunda invocación de CLI o "Open with..." ya no reemplaza en silencio el archivo actualmente abierto (aunque no tenga cambios sin guardar) — ahora pregunta antes, porque la instancia única significa que solo hay una ventana donde mostrarlo.
+
 ## [0.1.0] - 2026-08-19
 
 ### Agregado

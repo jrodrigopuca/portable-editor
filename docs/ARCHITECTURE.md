@@ -47,18 +47,18 @@ Idiomas: **código, comentarios y strings de UI en inglés; documentación en es
 | Comando        | Firma                                  | Notas                                                       |
 | -------------- | -------------------------------------- | ----------------------------------------------------------- |
 | `read_file`    | `(path: String) -> Result<DecodedFile>` | `DecodedFile = { contents, encoding, eol }`. Chequea tamaño vía metadata primero: rechaza sin leer si supera `text_io::MAX_FILE_SIZE_BYTES` (100 MB). Detección: BOM (UTF-8/UTF-16) → UTF-8 estricto → fallback Windows-1252. `contents` siempre viene normalizado a `\n`. |
-| `write_file`   | `(path, contents, eol: String) -> Result<()>` | **Atómico**: temp + rename, preserva permisos del original. Restaura `eol` (`"LF"`/`"CRLF"`) antes de escribir. Política: **siempre UTF-8 en disco**, sin importar el encoding de origen. |
+| `write_file`   | `(path, contents, eol: String) -> Result<()>` | **Atómico**: temp + rename, preserva permisos del original. Restaura `eol` (`"LF"`/`"CRLF"`) antes de escribir. Política: **siempre UTF-8 en disco**, sin importar el encoding de origen. Escribe a través de symlinks (`resolve_symlink_target`), no los reemplaza — trampa #15. |
 | `file_mtime`   | `(path) -> Result<u64>`                | Millis desde epoch; usado por el polling de cambios externos |
-| `startup_file` | `() -> Option<String>`                 | Prioridad: PendingFile (macOS "Open with") > argv[1]        |
+| `startup_file` | `() -> Option<StartupTarget>`          | `StartupTarget = { path, exists }`. Prioridad: PendingFile (macOS "Open with", `exists` siempre `true`) > argv[1] (resuelto con `resolve_open_arg`, `exists: false` si el path todavía no existe) |
 
 ### Eventos (Rust → frontend, vía `emit`/`listen`)
 
 | Evento      | Payload  | Emisores                                                            |
 | ----------- | -------- | ------------------------------------------------------------------- |
-| `open-file` | `string` (path absoluto) | 1) `RunEvent::Opened` en macOS (app corriendo), 2) callback de single-instance (segunda invocación CLI) |
+| `open-file` | `StartupTarget` (`{ path, exists }`) | 1) `RunEvent::Opened` en macOS (app corriendo, `exists` siempre `true`), 2) callback de single-instance (segunda invocación CLI, vía `resolve_open_arg`) |
 | `menu-action` | `string` (id del ítem: `"new"`\|`"open"`\|`"save"`\|`"save_as"`\|`"shortcuts"`) | `on_menu_event` en `build_menu()`, ante click o accelerator de un ítem del menú nativo |
 
-Todo camino de apertura del frontend converge en `openFile()` de `main.ts`, que aplica el guard de cambios sin guardar y actualiza recientes. **No crear caminos alternativos que llamen a `read_file` sin pasar por ahí** (única excepción: `restoreSession()` y `reloadFromDisk()`, que son deliberadamente silenciosos).
+Todo camino de apertura del frontend converge en `openFile()` de `main.ts` (archivo existente) u `openNewFileAt()` (path que todavía no existe — CLI/"Open with..." a un archivo por crear), ambos con el guard de cambios sin guardar. **No crear caminos alternativos que llamen a `read_file` sin pasar por `openFile()`** (única excepción: `restoreSession()` y `reloadFromDisk()`, que son deliberadamente silenciosos).
 
 ## Estado
 
@@ -103,6 +103,10 @@ Decisión: polling en vez de watcher nativo (`notify`). Es un solo archivo; un `
 ### Instancia única
 `tauri-plugin-single-instance`: la segunda invocación no abre ventana; su callback enfoca la existente y, si hay argv de archivo, lo resuelve contra el `cwd` de la segunda invocación y emite `open-file`.
 
+El frontend, al recibir `open-file` (o el path de arranque en frío), llama a `openFile`/`openNewFileAt` con `external: true`. Eso activa `confirmExternalReplace()` además del `confirmDiscard()` de siempre: si hay un archivo real abierto (`doc.path !== null`), pregunta antes de reemplazarlo — **incluso sin cambios sin guardar**. Es la diferencia con una apertura in-app (botón, menú File, recientes): ahí no tiene sentido preguntar "¿reemplazar?" si no hay nada que perder, pero una apertura que llega desde afuera (otra invocación de CLI, "Open with...") puede interrumpir algo que el usuario está mirando sin haberlo pedido desde dentro de la app.
+
+**Esto es un parche al síntoma, no una resolución del límite de fondo**: sigue existiendo una sola ventana posible (ver ROADMAP, "Hallazgos de revisión externa", ítem 3). Si en el futuro se decide soportar múltiples ventanas, `confirmExternalReplace()` deja de ser necesario para el caso "segunda invocación con archivo" (abriría ventana nueva en vez de preguntar) — no lo hagas más complejo de lo que es a la espera de esa decisión.
+
 ## Editor (`editor.ts`)
 
 - CodeMirror se reconfigura en caliente con **Compartments**: `themeConfig`, `languageConfig`, `wrapConfig`. Para agregar otra opción dinámica, seguir ese patrón.
@@ -136,7 +140,8 @@ Para agregar un tema:
 12. **Cada accelerator del menú nativo (`build_menu`) es dueño único de su atajo.** `Mod+N/O/S/Shift+S` fueron sacados a propósito del keydown handler de `main.ts` — dejar ambos caminos activos arriesga doble disparo (ej. dos diálogos de "Save as" a la vez).
 13. **El panel de búsqueda de CodeMirror (`Mod+F`) se tematiza en `styles.css` (`#editor .cm-panel.cm-search`), no en `themes.ts`.** Es chrome del programa, no contenido del editor — mismo criterio que la status bar. No moverlo a `buildTheme()`: haría 4 variantes ligeramente distintas en vez de una consistente, y dejaría afuera a One Dark (no pasa por `buildTheme()`). El botón de cerrar (`button[name="close"]`) viene `position: absolute` del base theme de CM6; hay que pisarlo a `static` o `margin-left: auto` no hace nada.
 14. **El botón de indentación de la status bar NO reconvierte el código existente**, solo configura cómo se indenta lo que se escribe de ahora en más (`indentUnit`). Es comportamiento estándar (VS Code también lo separa en un comando aparte) — no "arreglarlo" para que reformatee el documento sin evaluar primero el riesgo de corromper líneas de alineación (ver ROADMAP Fase 4, ítem 3).
-15. **El guardado atómico (`write_file`) rompe symlinks**: `rename()` sobre un target que es symlink lo reemplaza por un archivo plano, desconectado del original — no escribe "a través" del link. Afecta dotfiles manejados con Stow/chezmoi/Nix. Hallazgo de revisión externa (ver ROADMAP, "Hallazgos de revisión externa"), deliberadamente sin arreglar todavía — no lo "arregles" de pasada sin leer esa sección primero.
+15. **`write_file` escribe A TRAVÉS de los symlinks, no sobre ellos.** `resolve_symlink_target()` resuelve el target real antes del `tmp_path`/`rename` — si no existiera ese paso, el `rename()` reemplazaría el symlink mismo por un archivo plano (rompiendo dotfiles manejados con Stow/chezmoi/Nix). No "simplificar" quitando esa resolución.
+16. **`Path::canonicalize()` requiere que el archivo YA exista** — falla con `NotFound` si no. Por eso `resolve_open_arg()` no lo usa solo: intenta `canonicalize()` primero y cae a `std::path::absolute()` (no toca el filesystem, no exige existencia) si falla. No volver a un `.canonicalize().ok()` pelado para resolver argumentos de CLI — eso es exactamente el bug que tenía antes (un `portable-editor archivo-nuevo.txt` se ignoraba en silencio).
 
 ## Verificación
 

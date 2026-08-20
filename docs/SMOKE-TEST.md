@@ -17,6 +17,8 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] Drag & drop de un archivo a la ventana lo abre
 - [ ] Terminal: `portable-editor archivo.txt` abre el archivo
 - [ ] Con la app abierta, `portable-editor otro.txt` desde otra terminal reutiliza la ventana (single instance)
+- [ ] `portable-editor archivo-que-no-existe.txt` abre un editor vacío con ese nombre en la status bar (no otro archivo, no error) — guardar crea el archivo en ese path sin pedir ubicación
+- [ ] Con un archivo abierto y SIN cambios sin guardar: `portable-editor otro.txt` desde otra terminal pregunta antes de reemplazarlo (no lo hace en silencio)
 - [ ] (Solo bundle instalado) "Open with..." desde Finder/file manager funciona
 - [ ] Abrir un `.ts` o `.py` → highlighting correcto y lenguaje en la status bar
 
