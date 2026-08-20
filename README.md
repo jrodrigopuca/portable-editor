@@ -47,13 +47,13 @@ Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) 
 | "Abrir con..."       | Asociaciones registradas al instalar el bundle (extensiones de código)    |
 | Terminal             | `portable-editor archivo.txt`                                             |
 
-En macOS el ejecutable vive dentro del `.app`; para tener el comando en la terminal:
+En macOS el ejecutable vive dentro del `.app`. Para tener el comando en la terminal, abrí portable-editor y andá a **Help → "Install 'portable-editor' Command"** — crea el symlink solo (puede pedir tu contraseña de admin). Alternativa manual, si preferís no usar el menú:
 
 ```sh
 sudo ln -s "/Applications/portable-editor.app/Contents/MacOS/portable-editor" /usr/local/bin/portable-editor
 ```
 
-En Linux los paquetes `.deb`/`.rpm` ya instalan el binario en el PATH.
+En Linux los paquetes `.deb`/`.rpm` ya instalan el binario en el PATH — no hace falta ningún paso extra.
 
 ## Requisitos
 

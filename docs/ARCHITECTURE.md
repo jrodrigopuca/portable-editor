@@ -50,6 +50,7 @@ Idiomas: **código, comentarios y strings de UI en inglés; documentación en es
 | `write_file`   | `(path, contents, eol: String) -> Result<()>` | **Atómico**: temp + rename, preserva permisos del original. Restaura `eol` (`"LF"`/`"CRLF"`) antes de escribir. Política: **siempre UTF-8 en disco**, sin importar el encoding de origen. Escribe a través de symlinks (`resolve_symlink_target`), no los reemplaza — trampa #15. |
 | `file_mtime`   | `(path) -> Result<u64>`                | Millis desde epoch; usado por el polling de cambios externos |
 | `startup_file` | `() -> Option<StartupTarget>`          | `StartupTarget = { path, exists }`. Prioridad: PendingFile (macOS "Open with", `exists` siempre `true`) > argv[1] (resuelto con `resolve_open_arg`, `exists: false` si el path todavía no existe) |
+| `install_cli_command` | `() -> Result<String>`          | Solo macOS (error explicativo en otras plataformas). Symlink de `current_exe()` a `/usr/local/bin/portable-editor`: intenta sin privilegios primero, si falla pide admin vía `osascript` con `quoted form of` (no interpola paths directo en el script — ver trampa #17) |
 
 ### Eventos (Rust → frontend, vía `emit`/`listen`)
 
@@ -132,7 +133,7 @@ Para agregar un tema:
 4. **Permisos IPC**: cualquier API nueva de `@tauri-apps/api` o de plugins puede requerir un permiso en `capabilities/default.json`. Si un `invoke` falla con "not allowed", falta el permiso ahí.
 5. **El temp del guardado atómico** vive en el mismo directorio que el destino (mismo filesystem, si no `rename` no es atómico) y copia los permisos del original antes del rename.
 6. **`onDocChanged` dispara también en recargas programáticas** (`replaceText` es un dispatch): el llamador debe resetear `doc.dirty = false` después, como hace `reloadFromDisk()`.
-7. **`tauri dev` con argumento**: los args CLI se prueban con el binario compilado o `npm run tauri dev -- -- -- archivo.txt` (doble `--`).
+7. **`tauri dev` con argumento**: los args CLI se prueban con el binario compilado o `npm run tauri dev -- -- -- archivo.txt` (doble `--`). Ojo: el binario en `target/debug/` sigue dependiendo del servidor de Vite para cargar el frontend — si lo invocás directo desde otra terminal con `npm run tauri dev` ya detenido, la ventana abre en blanco (sin editor ni status bar, solo el título). No es un bug de la app, es nomás que no hay nada que cargar. No pasa con el bundle de release (frontend embebido, sin dependencia externa).
 8. Las **asociaciones de archivo** solo existen con la app instalada desde el bundle; en dev no funcionan.
 9. **La detección de Windows-1252 es una heurística de último recurso**, no un chardet real: si los bytes no tienen BOM y no son UTF-8 válido, se asume Windows-1252 porque nunca falla al decodificar (mapea todo byte a algún codepoint). Para textos legado que no sean de alfabeto latino (Shift-JIS, etc.) el resultado va a ser basura legible-pero-incorrecta, no un error. Es una decisión consciente de simplicidad (ver ROADMAP), no un bug.
 10. **El chequeo de tamaño en `read_file` va antes de `std::fs::read`, no después.** El orden importa: es lo que evita cargar un archivo de varios GB a memoria solo para descartarlo. No "simplificar" juntando ambos pasos.
@@ -142,6 +143,7 @@ Para agregar un tema:
 14. **El botón de indentación de la status bar NO reconvierte el código existente**, solo configura cómo se indenta lo que se escribe de ahora en más (`indentUnit`). Es comportamiento estándar (VS Code también lo separa en un comando aparte) — no "arreglarlo" para que reformatee el documento sin evaluar primero el riesgo de corromper líneas de alineación (ver ROADMAP Fase 4, ítem 3).
 15. **`write_file` escribe A TRAVÉS de los symlinks, no sobre ellos.** `resolve_symlink_target()` resuelve el target real antes del `tmp_path`/`rename` — si no existiera ese paso, el `rename()` reemplazaría el symlink mismo por un archivo plano (rompiendo dotfiles manejados con Stow/chezmoi/Nix). No "simplificar" quitando esa resolución.
 16. **`Path::canonicalize()` requiere que el archivo YA exista** — falla con `NotFound` si no. Por eso `resolve_open_arg()` no lo usa solo: intenta `canonicalize()` primero y cae a `std::path::absolute()` (no toca el filesystem, no exige existencia) si falla. No volver a un `.canonicalize().ok()` pelado para resolver argumentos de CLI — eso es exactamente el bug que tenía antes (un `portable-editor archivo-nuevo.txt` se ignoraba en silencio).
+17. **`install_cli_command` pasa el path del ejecutable a `osascript` como argv, no interpolado en el texto del script.** El AppleScript lo shell-quotea con `quoted form of` antes de meterlo en `do shell script ... with administrator privileges`. No "simplificar" volviendo a un `format!("... {path} ...")` armado a mano — eso corre con privilegios de admin, y un path con comillas rompería el escaping (command injection).
 
 ## Verificación
 

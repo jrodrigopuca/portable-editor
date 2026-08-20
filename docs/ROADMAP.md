@@ -107,6 +107,15 @@ Dos reviews independientes (agentes `architect` y `stark`) sobre el estado del p
    - **La pregunta arquitectónica de fondo sigue sin resolver, a propósito**: ¿el guardrail de identidad es "un buffer por ventana" (compatible con N ventanas simultáneas, como TextEdit/gedit) o quedó soldado a "un proceso por sistema" sin que nadie lo decidiera así explícitamente? Se evaluó la opción de multi-ventana (segunda invocación con archivo → ventana nueva) y se decidió conscientemente ir por el parche más chico primero — sigue sin poder haber 2 ventanas del editor abiertas a la vez. Retomar si el feedback real confirma que este límite molesta en la práctica.
 4. **Fallback a Windows-1252 sin alarma fuerte** (`stark`) — para texto no latino (Shift-JIS, etc.) decodifica sin error, se ve legible-pero-incorrecto, y el guardado atómico reescribe el archivo corrompido sin aviso destacado. Relacionado con la trampa #9 ya documentada, pero el punto nuevo es que hoy no hay ninguna señal *fuerte* (más que el label discreto de la status bar) cuando la heurística cae al peor caso.
 
+### Seguimiento: "¿me sacás del hábito instalado?" (`stark`, 2026-08-20)
+
+Pregunta distinta a las anteriores — no arquitectura/riesgo, sino uso real: *¿elegirías portable-editor sobre vim/VS Code/Sublime para editar algo rápido en el momento?* Veredicto de stark: hoy no, y de las 4 razones que dio, la primera es la que más plata deja sobre la mesa.
+
+1. ~~**No está en el PATH sin trabajo manual**~~ ✅ 2026-08-20 — antes el README pedía un `sudo ln -s` a mano. Ahora hay un ítem en el menú Help (solo macOS; Linux ya lo resuelve el .deb/.rpm), `install_cli_command`, que crea el symlink a `/usr/local/bin/portable-editor` — sin privilegios si puede, con el diálogo nativo de admin de macOS si hace falta. Verificado por el autor: diálogo de admin apareció, `which portable-editor` resuelve, y corre desde una terminal nueva.
+2. **No hay timing de arranque real y publicado** — la promesa de "Tauri, arranca en milisegundos" está en el README pero nadie la midió con algo tipo `hyperfine` contra un build de release real. Pendiente.
+3. **Sin autosave/recuperación de crash** — el escenario de "editar algo urgente" es justo el de mayor probabilidad de interrupción (Slack, laptop que se duerme, olvidarse de guardar "porque es rapidito"). Pendiente — candidato simple: dump a `localStorage` cada N segundos.
+4. **Instancia única** — mismo hallazgo que el ítem 3 de arriba, visto desde el ángulo de "necesito mirar un segundo archivo a mitad de la tarea urgente". Ya parcheado el síntoma (confirmación antes de reemplazar); la pregunta de fondo (multi-ventana) sigue abierta.
+
 ---
 
 ## 7. Fase 5 — Distribución y alcance

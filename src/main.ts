@@ -505,6 +505,16 @@ function closeShortcuts(): void {
   el.shortcutsPanel.hidden = true;
 }
 
+/** Help → "Install 'portable-editor' Command" (macOS only; see lib.rs). */
+async function installCliCommand(): Promise<void> {
+  try {
+    const result = await invoke<string>("install_cli_command");
+    await message(result, { title: APP_NAME });
+  } catch (err) {
+    await message(String(err), { title: APP_NAME, kind: "error" });
+  }
+}
+
 // ---------- UI events ----------
 
 window.addEventListener(
@@ -596,6 +606,9 @@ void listen<string>("menu-action", (event) => {
       break;
     case "shortcuts":
       openShortcuts();
+      break;
+    case "install-cli":
+      void installCliCommand();
       break;
   }
 });

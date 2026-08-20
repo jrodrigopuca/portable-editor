@@ -81,9 +81,13 @@ fn file_mtime(path: String) -> Result<u64, String> {
         .as_millis() as u64)
 }
 
-/// Builds the File menu (New/Open/Save/Save As), a Help menu (Keyboard
-/// Shortcuts, opens the in-app panel; About, with the app version — macOS:
-/// app-name menu instead). Deliberately stops there: no Quit (Tauri's
+/// Builds the File menu (New/Open/Save/Save As) and a Help menu: Keyboard
+/// Shortcuts (opens the in-app panel) everywhere; macOS also gets "Install
+/// CLI Command" (see `install_cli_command`), with About moved to the
+/// app-name menu instead (macOS convention) — other platforms get About in
+/// Help, since there's no package-manager PATH gap to fix there.
+///
+/// Otherwise deliberately stops there: no Quit (Tauri's
 /// PredefinedMenuItem::quit bypasses onCloseRequested and skips the
 /// unsaved-changes guard — see docs/ARCHITECTURE.md), no Edit (CodeMirror
 /// owns undo/redo/clipboard via its own keymap, not the OS undo manager).
@@ -133,8 +137,7 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
 
     // macOS convention: About lives in the app-name menu (leftmost, which is
     // always whatever submenu is added first). Everywhere else it goes in
-    // Help instead, alongside Keyboard Shortcuts — Help itself is built the
-    // same way on every platform.
+    // Help instead, alongside Keyboard Shortcuts.
     #[cfg(target_os = "macos")]
     {
         use tauri::menu::PredefinedMenuItem;
@@ -151,8 +154,13 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
     let help_menu = {
         #[cfg(target_os = "macos")]
         {
+            let install_cli_item =
+                MenuItemBuilder::with_id("install-cli", "Install 'portable-editor' Command")
+                    .build(app)?;
             SubmenuBuilder::new(app, "Help")
                 .item(&shortcuts_item)
+                .separator()
+                .item(&install_cli_item)
                 .build()?
         }
         #[cfg(not(target_os = "macos"))]
@@ -228,6 +236,60 @@ fn startup_file(pending: tauri::State<PendingFile>) -> Option<StartupTarget> {
     resolve_open_arg(&cwd, &arg)
 }
 
+const CLI_TARGET: &str = "/usr/local/bin/portable-editor";
+
+/// Symlinks the running app's executable into `/usr/local/bin` so
+/// `portable-editor` works from any shell. macOS only — Linux .deb/.rpm
+/// packages already put the binary on PATH via the package manager.
+///
+/// Tries a plain symlink first (works if `/usr/local/bin` is already
+/// user-writable, e.g. on a Homebrew-managed Mac); falls back to the native
+/// admin-password prompt only if that fails. The exe path is passed to
+/// `osascript` as a separate argv entry (not interpolated into the script
+/// text) and shell-quoted there via `quoted form of`, so a path containing
+/// quotes or other shell metacharacters can't break out of the command run
+/// with administrator privileges.
+#[tauri::command]
+fn install_cli_command() -> Result<String, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(
+            "Not needed on this platform — your package manager already put \
+             portable-editor on PATH."
+                .to_string(),
+        )
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let exe = std::env::current_exe().map_err(|e| format!("Could not locate the app: {e}"))?;
+        let _ = std::fs::create_dir_all("/usr/local/bin");
+        if std::os::unix::fs::symlink(&exe, CLI_TARGET).is_ok() {
+            return Ok("Installed. Open a new terminal and run: portable-editor".to_string());
+        }
+
+        let script = r#"on run argv
+    set exePath to item 1 of argv
+    set targetPath to item 2 of argv
+    do shell script "mkdir -p /usr/local/bin && ln -sf " & quoted form of exePath & " " & quoted form of targetPath with administrator privileges
+end run"#;
+
+        let status = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .arg(exe.to_string_lossy().as_ref())
+            .arg(CLI_TARGET)
+            .status()
+            .map_err(|e| format!("Could not run osascript: {e}"))?;
+
+        if status.success() {
+            Ok("Installed. Open a new terminal and run: portable-editor".to_string())
+        } else {
+            Err("Installation was cancelled or failed.".to_string())
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -255,7 +317,8 @@ pub fn run() {
             read_file,
             write_file,
             file_mtime,
-            startup_file
+            startup_file,
+            install_cli_command
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
