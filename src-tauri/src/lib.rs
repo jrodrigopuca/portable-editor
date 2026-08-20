@@ -279,6 +279,7 @@ fn startup_file(pending: tauri::State<PendingFile>) -> Option<StartupTarget> {
     resolve_open_arg(&cwd, &arg)
 }
 
+#[cfg(target_os = "macos")]
 const CLI_TARGET: &str = "/usr/local/bin/portable-editor";
 
 /// Symlinks the running app's executable into `/usr/local/bin` so
