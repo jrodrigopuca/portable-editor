@@ -202,7 +202,7 @@ gh release upload v0.2.0 \
 Cuando el proyecto madure, en orden de esfuerzo/beneficio:
 
 1. **Homebrew tap propio** (macOS/Linux): un repo `homebrew-tap` con un cask que apunta al .dmg del release. `brew install --cask juan/tap/portable-editor`. Esfuerzo bajo.
-2. **AUR** (Arch): un `PKGBUILD` que baja el release. La comunidad suele mantenerlo si el proyecto interesa.
+2. **AUR** (Arch): un `PKGBUILD` que baja el release. Guía detallada, paso a paso, en [`docs/AUR.md`](AUR.md) — pendiente de ejecutar, no probado todavía en una máquina Arch real.
 3. **Flathub** (Linux universal): mayor alcance, pero requiere manifest Flatpak y proceso de revisión. Encararlo solo si hay tracción.
 
 No implementamos auto-updates: para un editor mini, "bajá la versión nueva del release" es suficiente. Si algún día hace falta, existe `tauri-plugin-updater` (requiere firmar los updates con su propio par de claves).

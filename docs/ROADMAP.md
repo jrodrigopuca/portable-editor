@@ -93,7 +93,7 @@ Orden sugerido por relación valor/complejidad:
 
 ### Qué NO va a tener (guardrails de identidad)
 
-Tabs multi-archivo, árbol de archivos, LSP/autocompletado, git integrado, terminal embebida, sistema de plugins. Cada una convierte el editor en un IDE de juguete que compite (y pierde) contra VS Code/Zed. La ventaja competitiva es abrir en milisegundos y no estorbar. **Un feature request que viole esto se cierra con gracia y un link a esta sección.**
+Tabs multi-archivo, árbol de archivos, LSP/autocompletado, git integrado, terminal embebida, sistema de plugins. Cada una convierte el editor en un IDE de juguete que compite (y pierde) contra VS Code/Zed. La ventaja competitiva es abrir rápido (~470 ms medidos, no instantáneo tipo app nativa, pero un orden de magnitud más rápido que un IDE Electron con extensiones) y no estorbar. **Un feature request que viole esto se cierra con gracia y un link a esta sección.**
 
 ---
 
@@ -124,7 +124,7 @@ Pregunta distinta a las anteriores — no arquitectura/riesgo, sino uso real: *�
 En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, descargas):
 
 1. **Homebrew tap propio** — cask apuntando al .dmg del release. Esfuerzo: horas.
-2. **AUR** — `PKGBUILD` sobre el release. La comunidad Arch suele adoptarlo sola.
+2. **AUR** — `PKGBUILD` sobre el release. Guía detallada lista en `docs/AUR.md` (2026-08-20), pendiente de ejecutar en una máquina Arch real — necesita cuenta AUR + SSH key propias del autor.
 3. ~~**Firma y notarización de Apple**~~ — completado en Fase 2 (2026-08-19), antes de lo previsto: ya había certificado disponible.
 4. **Flathub** — mayor alcance Linux; requiere manifest y revisión. Solo con demanda concreta.
 5. **Auto-updates** (`tauri-plugin-updater`) — último de la lista: para un editor mini, bajar el release nuevo alcanza durante mucho tiempo.

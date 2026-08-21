@@ -4,8 +4,6 @@ Editor de texto minimalista para devs. Un archivo a la vez, liviano y al punto: 
 
 Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) y [CodeMirror 6](https://codemirror.net) como motor de edición.
 
-**Arranque medido** (macOS, Apple Silicon, build local sin firmar/notarizar vía `--no-bundle`, `hyperfine`, 15 corridas): **~470 ms** (± 25 ms) desde que arranca el proceso hasta que el editor está listo para escribir. No es "milisegundos" en el sentido de instantáneo — sigue siendo un webview, no una app nativa pura — pero está en el orden de un segundo, no de varios. Metodología y script en `docs/RELEASE.md`.
-
 ## Features
 
 - **Highlighting automático** por extensión de archivo, con carga lazy del lenguaje (`@codemirror/language-data`)
@@ -90,10 +88,26 @@ src-tauri/      # Backend nativo (Rust)
 docs/           # Documentación de mantenimiento
 ```
 
+## Rendimiento
+
+Arranque medido con [`hyperfine`](https://github.com/sharkdp/hyperfine) (macOS Apple Silicon, build local sin firmar/notarizar vía `--no-bundle`, 15 corridas + 2 de warmup — [metodología completa](docs/RELEASE.md), [script reproducible](scripts/bench-startup.sh)):
+
+| | Tiempo hasta listo para escribir |
+| --- | --- |
+| **portable-editor** (medido acá, 2026-08-20) | **~470 ms** (± 25 ms) |
+
+Para tener con qué comparar — **esto NO se midió en las mismas condiciones**, son cifras de referencia pública/experiencia general, no un benchmark propio contra esas apps:
+
+- Un editor nativo puro (Cocoa, ej. TextEdit/CotEditor) suele arrancar bien por debajo de 200 ms.
+- Un IDE basado en Electron con extensiones cargadas (ej. VS Code en un workspace grande) suele reportar arranques de 1 a 3+ segundos.
+
+Conclusión honesta: portable-editor no es instantáneo como una app nativa pura (el costo del WebView es real), pero está un orden de magnitud más rápido que un IDE Electron pesado. Si volvés a medirlo (otro hardware, con firma/notarización, otra versión), actualizá esta tabla con el dato real, no ajustes el texto a mano.
+
 ## Documentación
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitectura, superficie IPC, flujos, decisiones, invariantes y trampas conocidas. **Lectura obligada antes de tocar código.**
 - [`docs/RELEASE.md`](docs/RELEASE.md) — cómo generar los ejecutables (local y CI) y publicarlos en GitHub Releases.
+- [`docs/AUR.md`](docs/AUR.md) — guía paso a paso para publicar en el AUR (pendiente de ejecutar).
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — diagnóstico de madurez y plan de evolución por fases, con criterios de salida.
 - [`docs/SMOKE-TEST.md`](docs/SMOKE-TEST.md) — checklist manual pre-release.
 - [`CHANGELOG.md`](CHANGELOG.md) — historial de cambios (Keep a Changelog).
