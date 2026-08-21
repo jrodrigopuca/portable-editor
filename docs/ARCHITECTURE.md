@@ -55,6 +55,7 @@ Idiomas: **código, comentarios y strings de UI en inglés; documentación en es
 | `save_recovery` | `(path, contents) -> Result<()>`    | Dump (no atómico) a `app_data_dir()/recovery/<hash(path)>.recovery`. Llamado cada 10 s si `doc.dirty` (`AUTOSAVE_INTERVAL_MS` en `main.ts`) |
 | `read_recovery` | `(path) -> Result<Option<String>>` | `None` si no hay recovery para ese path |
 | `clear_recovery` | `(path) -> Result<()>`             | Best-effort (ignora si no existe); se llama tras guardar o al descartar cambios explícitamente |
+| `signal_ready` | `()`                                | Imprime `PORTABLE_EDITOR_READY` a stdout (con flush explícito) al final de `init()`. Solo para benchmarking de arranque (`scripts/bench-startup.sh`) — no lo usa nada en runtime |
 
 ### Eventos (Rust → frontend, vía `emit`/`listen`)
 
@@ -158,6 +159,8 @@ Para agregar un tema:
 16. **`Path::canonicalize()` requiere que el archivo YA exista** — falla con `NotFound` si no. Por eso `resolve_open_arg()` no lo usa solo: intenta `canonicalize()` primero y cae a `std::path::absolute()` (no toca el filesystem, no exige existencia) si falla. No volver a un `.canonicalize().ok()` pelado para resolver argumentos de CLI — eso es exactamente el bug que tenía antes (un `portable-editor archivo-nuevo.txt` se ignoraba en silencio).
 17. **`install_cli_command` pasa el path del ejecutable a `osascript` como argv, no interpolado en el texto del script.** El AppleScript lo shell-quotea con `quoted form of` antes de meterlo en `do shell script ... with administrator privileges`. No "simplificar" volviendo a un `format!("... {path} ...")` armado a mano — eso corre con privilegios de admin, y un path con comillas rompería el escaping (command injection).
 18. **El recovery de autosave va a `app_data_dir()`, no a `localStorage`.** Se evaluó `localStorage` (ya se usa para tema/fuente/wrap/recientes) y se descartó a propósito: es síncrono (bloquearía el hilo de UI en cada dump) y tiene límite de tamaño (~5-10 MB típico) — justo lo que rompería para los archivos de hasta 100 MB que Fase 3 ya soporta. No migrar el recovery a `localStorage` "por consistencia" sin releer esto.
+19. **`cargo build --release` a secas produce un binario con la ventana en blanco.** La elección entre `devUrl` (servidor de Vite) y `frontendDist` (assets embebidos) la resuelve el CLI de Tauri al invocar la compilación — no es un `#[cfg(debug_assertions)]` en el código. Un `cargo build --release` corrido por afuera de `tauri dev`/`tauri build` NO usa el frontend embebido correctamente: abre una ventana sin nada, ni siquiera el HTML estático (botones de la status bar). Para probar/benchmarkear un binario de producción real sin el bundle completo: `npm run tauri build -- --no-bundle`. Ver `docs/RELEASE.md`.
+20. **`println!` con stdout redirigido a archivo/pipe es block-buffered, no line-buffered.** Si el proceso muere por `kill -9` (sin shutdown limpio) antes de que el buffer se vacíe, el output se pierde entero — pasó con `signal_ready` hasta que se le agregó `stdout().flush()` explícito. Cualquier print pensado para ser leído por un script externo que mate el proceso necesita flush explícito.
 
 ## Verificación
 

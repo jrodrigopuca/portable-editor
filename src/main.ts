@@ -711,6 +711,7 @@ async function init(): Promise<void> {
   window.setInterval(() => void autosaveTick(), AUTOSAVE_INTERVAL_MS);
   window.addEventListener("focus", () => void checkExternalChange());
   editor.focus();
+  void invoke("signal_ready");
 }
 
 void init();

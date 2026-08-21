@@ -112,6 +112,21 @@ fn clear_recovery(app: tauri::AppHandle, path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Prints a plain marker to stdout once the frontend's init() has fully run
+/// (file loaded/restored, editor focused). Used only to benchmark startup
+/// time from the outside (see docs/RELEASE.md) — a GUI app has no natural
+/// "done" exit code the way a CLI command does, so this is the signal a
+/// wrapper script waits for. Harmless to ship: it's one stdout line, nothing
+/// reads or depends on it at runtime.
+#[tauri::command]
+fn signal_ready() {
+    println!("PORTABLE_EDITOR_READY");
+    // stdout is block-buffered (not line-buffered) once it's not a TTY —
+    // e.g. redirected to a file by a benchmark script. Without an explicit
+    // flush, a `kill -9` (no graceful shutdown) loses this line entirely.
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+}
+
 /// Mtime in milliseconds; the frontend polls it to detect external changes.
 #[tauri::command]
 fn file_mtime(path: String) -> Result<u64, String> {
@@ -365,7 +380,8 @@ pub fn run() {
             install_cli_command,
             save_recovery,
             read_recovery,
-            clear_recovery
+            clear_recovery,
+            signal_ready
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

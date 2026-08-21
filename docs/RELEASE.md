@@ -84,6 +84,26 @@ Salidas en `src-tauri/target/release/bundle/`:
 
 El binario pelado (sin bundle) queda en `src-tauri/target/release/portable-editor` y acepta el argumento de archivo por CLI.
 
+> **`cargo build --release` a secas NO sirve para probar el binario real.** La elección entre servidor de dev (`devUrl`) y frontend embebido (`frontendDist`) la resuelve el CLI de Tauri al invocar la compilación, no es algo que Rust decida solo por ser build de release — un `cargo build --release` corrido a mano por afuera de `tauri dev`/`tauri build` abre una ventana completamente en blanco (ni siquiera los botones de la status bar, que son HTML estático). Para un binario de producción real sin pasar por el bundle completo (DMG/firma/notarización, que tardan), usá:
+> ```sh
+> npm run tauri build -- --no-bundle
+> ```
+
+---
+
+## 2.1 Medir el tiempo de arranque
+
+`hyperfine` no puede cronometrar una app GUI directamente (mide comandos que arrancan y terminan solos; portable-editor se queda corriendo hasta que la cerrás). Por eso el comando `signal_ready` (`src-tauri/src/lib.rs`) imprime `PORTABLE_EDITOR_READY` a stdout apenas el frontend termina de inicializar — es lo que un script wrapper espera antes de matar el proceso y devolver el control, y ES ESO lo que `hyperfine` termina cronometrando.
+
+```sh
+brew install hyperfine  # si no lo tenés
+npm run tauri build -- --no-bundle
+hyperfine --warmup 2 --runs 15 \
+  "scripts/bench-startup.sh src-tauri/target/release/portable-editor algún-archivo.txt"
+```
+
+Último resultado medido (macOS Apple Silicon, build sin firmar, 2026-08-20): **~470 ms ± 25 ms**. Está en el README, actualizarlo ahí también si se vuelve a medir.
+
 ---
 
 ## 3. Firma

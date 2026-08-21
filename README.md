@@ -4,6 +4,8 @@ Editor de texto minimalista para devs. Un archivo a la vez, liviano y al punto: 
 
 Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) y [CodeMirror 6](https://codemirror.net) como motor de edición.
 
+**Arranque medido** (macOS, Apple Silicon, build local sin firmar/notarizar vía `--no-bundle`, `hyperfine`, 15 corridas): **~470 ms** (± 25 ms) desde que arranca el proceso hasta que el editor está listo para escribir. No es "milisegundos" en el sentido de instantáneo — sigue siendo un webview, no una app nativa pura — pero está en el orden de un segundo, no de varios. Metodología y script en `docs/RELEASE.md`.
+
 ## Features
 
 - **Highlighting automático** por extensión de archivo, con carga lazy del lenguaje (`@codemirror/language-data`)
