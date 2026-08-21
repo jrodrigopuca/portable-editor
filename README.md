@@ -22,6 +22,19 @@ Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) 
 - **Detección de encoding** (BOM UTF-8/UTF-16, o Windows-1252 como fallback para texto legado sin BOM) y de fin de línea (LF/CRLF), visibles en la status bar. El guardado siempre escribe UTF-8, preservando el estilo de fin de línea original
 - **Detección de indentación** (tabs vs. espacios, y el ancho) al abrir un archivo; botón en la status bar para cambiarla manualmente (2/4/8 espacios o tabs)
 
+## Instalación
+
+**macOS**, vía [Homebrew](https://brew.sh):
+
+```sh
+brew tap jrodrigopuca/tap
+brew install --cask portable-editor
+```
+
+**Linux**: bajá el `.deb`/`.rpm`/`.AppImage` de [GitHub Releases](https://github.com/jrodrigopuca/portable-editor/releases/latest) según tu distro.
+
+**Manual (cualquier plataforma)**: descargá el artefacto correspondiente desde [GitHub Releases](https://github.com/jrodrigopuca/portable-editor/releases/latest).
+
 ## Atajos
 
 | Atajo (⌘ en macOS, Ctrl en Linux) | Acción              |

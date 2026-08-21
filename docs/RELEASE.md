@@ -201,8 +201,29 @@ gh release upload v0.2.0 \
 
 Cuando el proyecto madure, en orden de esfuerzo/beneficio:
 
-1. **Homebrew tap propio** (macOS/Linux): un repo `homebrew-tap` con un cask que apunta al .dmg del release. `brew install --cask juan/tap/portable-editor`. Esfuerzo bajo.
+1. ~~**Homebrew tap propio**~~ ✅ 2026-08-20 — [`jrodrigopuca/homebrew-tap`](https://github.com/jrodrigopuca/homebrew-tap). `brew tap jrodrigopuca/tap && brew install --cask portable-editor`. Ver "6.1 Mantenimiento del tap" abajo para cada release nuevo.
 2. **AUR** (Arch): un `PKGBUILD` que baja el release. Guía detallada, paso a paso, en [`docs/AUR.md`](AUR.md) — pendiente de ejecutar, no probado todavía en una máquina Arch real.
 3. **Flathub** (Linux universal): mayor alcance, pero requiere manifest Flatpak y proceso de revisión. Encararlo solo si hay tracción.
 
 No implementamos auto-updates: para un editor mini, "bajá la versión nueva del release" es suficiente. Si algún día hace falta, existe `tauri-plugin-updater` (requiere firmar los updates con su propio par de claves).
+
+### 6.1 Mantenimiento del tap de Homebrew (cada release nuevo)
+
+El Cask (`Casks/portable-editor.rb` en el repo `homebrew-tap`) fija `version` y los `sha256` de los dos `.dmg` (arm/intel) a mano — no hay auto-update. Con cada release nuevo de `portable-editor`:
+
+```sh
+# 1. Bajar los dos .dmg del release nuevo y calcular sus hashes
+gh release download vX.Y.Z --repo jrodrigopuca/portable-editor -p "*.dmg"
+shasum -a 256 portable-editor_X.Y.Z_aarch64.dmg portable-editor_X.Y.Z_x64.dmg
+
+# 2. En el repo homebrew-tap, actualizar Casks/portable-editor.rb:
+#    - version "X.Y.Z"
+#    - sha256 arm: "...", intel: "..."  (los que salieron arriba)
+
+# 3. Auditar antes de pushear
+brew audit --cask --online jrodrigopuca/tap/portable-editor
+
+# 4. Commit + push al repo homebrew-tap
+```
+
+Candidato a automatizar más adelante: `brew bump-cask-pr` puede armar el PR de actualización solo si se le da la URL del release nuevo — evaluarlo cuando el ritmo de releases lo justifique (mismo criterio que la automatización de AUR).

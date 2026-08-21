@@ -123,7 +123,7 @@ Pregunta distinta a las anteriores — no arquitectura/riesgo, sino uso real: *�
 
 En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, descargas):
 
-1. **Homebrew tap propio** — cask apuntando al .dmg del release. Esfuerzo: horas.
+1. ~~**Homebrew tap propio**~~ ✅ 2026-08-20 — [`jrodrigopuca/homebrew-tap`](https://github.com/jrodrigopuca/homebrew-tap), Cask apuntando a los `.dmg` (arm64/x64) de v0.2.0. Auditado (`brew audit --cask --online`, limpio) e **instalado de verdad** en la máquina del autor (`brew install --cask`, funcionó de punta a punta). Flujo de mantenimiento para cada release nuevo en `docs/RELEASE.md`.
 2. **AUR** — `PKGBUILD` sobre el release. Guía detallada lista en `docs/AUR.md` (2026-08-20), pendiente de ejecutar en una máquina Arch real — necesita cuenta AUR + SSH key propias del autor.
 3. ~~**Firma y notarización de Apple**~~ — completado en Fase 2 (2026-08-19), antes de lo previsto: ya había certificado disponible.
 4. **Flathub** — mayor alcance Linux; requiere manifest y revisión. Solo con demanda concreta.

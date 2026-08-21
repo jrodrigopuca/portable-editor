@@ -5,7 +5,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 ## [Sin publicar]
 
-_Nada por ahora._
+### Agregado
+
+- Disponible por Homebrew (macOS): `brew tap jrodrigopuca/tap && brew install --cask portable-editor`. Tap en [`jrodrigopuca/homebrew-tap`](https://github.com/jrodrigopuca/homebrew-tap).
 
 ## [0.2.0] - 2026-08-20
 
