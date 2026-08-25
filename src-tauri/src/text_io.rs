@@ -15,13 +15,15 @@ pub fn size_limit_error(path: &str, size_bytes: u64) -> String {
 }
 
 /// Decoded file contents plus the metadata needed to round-trip it: the
-/// encoding it was read in (display-only, save always writes UTF-8) and the
-/// line ending style to restore on save.
+/// encoding it was read in (display-only, save always writes UTF-8), the
+/// line ending style to restore on save, and whether the raw bytes look like
+/// binary data rather than text (see `looks_binary`).
 #[derive(Serialize)]
 pub struct DecodedFile {
     pub contents: String,
     pub encoding: String,
     pub eol: String,
+    pub likely_binary: bool,
 }
 
 pub fn decode_file(bytes: &[u8]) -> DecodedFile {
@@ -31,7 +33,18 @@ pub fn decode_file(bytes: &[u8]) -> DecodedFile {
         contents: normalize_to_lf(&text),
         encoding: encoding.to_string(),
         eol: eol.to_string(),
+        likely_binary: looks_binary(bytes),
     }
+}
+
+/// Same heuristic git/grep use to tell text from binary: a NUL byte can't
+/// appear in any of the encodings `decode_bytes` handles, so its presence
+/// means the Windows-1252 fallback is about to turn non-text data (images,
+/// executables, ...) into "readable" garbage that silently corrupts the file
+/// on the next save. Checked on the raw bytes, before decoding — decoding
+/// itself never fails, so it can't be used to detect this.
+fn looks_binary(bytes: &[u8]) -> bool {
+    bytes.iter().take(8000).any(|&b| b == 0)
 }
 
 /// BOM first (covers UTF-8/UTF-16 explicitly marked files), then strict
@@ -135,6 +148,21 @@ mod tests {
     fn keeps_lf_on_encode() {
         let bytes = encode_with_eol("line1\nline2\n", "LF");
         assert_eq!(bytes, b"line1\nline2\n");
+    }
+
+    #[test]
+    fn plain_text_is_not_likely_binary() {
+        let decoded = decode_file("hello\nworld\n".as_bytes());
+        assert!(!decoded.likely_binary);
+    }
+
+    #[test]
+    fn nul_byte_marks_content_as_likely_binary() {
+        // A truncated PNG signature — not valid UTF-8, decodes via the
+        // Windows-1252 fallback without error, but the NUL byte gives it away.
+        let bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00];
+        let decoded = decode_file(&bytes);
+        assert!(decoded.likely_binary);
     }
 
     #[test]

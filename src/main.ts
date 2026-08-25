@@ -71,6 +71,7 @@ interface DecodedFile {
   contents: string;
   encoding: string;
   eol: Eol;
+  likely_binary: boolean;
 }
 
 /** Shape of `startup_file`'s return and the `open-file` event payload. */
@@ -163,6 +164,20 @@ async function confirmExternalReplace(incomingPath: string): Promise<boolean> {
     title: APP_NAME,
     kind: "warning",
   });
+}
+
+/**
+ * `read_file`'s `likely_binary` flag means the Windows-1252 fallback
+ * decoded non-text data (image, executable, ...) as if it were legacy
+ * text — it never fails outright, so this is the only signal we get.
+ * Editing and saving that "text" would rewrite the original file as UTF-8
+ * garbage. Ask before loading it into the editor at all.
+ */
+async function confirmOpenBinary(path: string): Promise<boolean> {
+  return ask(
+    `"${basename(path)}" doesn't look like a text file. Opening and saving it could corrupt it. Open anyway?`,
+    { title: APP_NAME, kind: "warning" },
+  );
 }
 
 // ---------- Recent files (pure logic lives in recent.ts) ----------
@@ -314,6 +329,7 @@ async function openFile(presetPath?: string, external = false): Promise<void> {
 
   try {
     const file = await invoke<DecodedFile>("read_file", { path });
+    if (file.likely_binary && !(await confirmOpenBinary(path))) return;
     void clearRecovery(doc.path);
     syncRecentCursor();
     doc.encoding = file.encoding;
@@ -364,6 +380,10 @@ async function saveFile(): Promise<void> {
     await saveFileAs();
     return;
   }
+  // Nothing changed: skip the write entirely. Matters most for a file that
+  // was never real text to begin with (see confirmOpenBinary) — a reflexive
+  // Mod+S with no edits must not re-encode and clobber it.
+  if (!doc.dirty) return;
   if (await writeTo(doc.path)) {
     updateStatus();
     await refreshMtime();

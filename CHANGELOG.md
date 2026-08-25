@@ -8,6 +8,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 ### Agregado
 
 - Disponible por Homebrew (macOS): `brew tap jrodrigopuca/tap && brew install --cask portable-editor`. Tap en [`jrodrigopuca/homebrew-tap`](https://github.com/jrodrigopuca/homebrew-tap).
+- Aviso al abrir un archivo que no parece texto (imagen, ejecutable, etc.): pregunta antes de cargarlo, en vez de "decodificarlo" en silencio como Windows-1252 y arriesgar corromperlo al guardar.
+
+### Corregido
+
+- `Mod+S` sin cambios sin guardar ya no reescribe el archivo. Antes, guardar sin haber editado nada re-encodeaba el contenido igual — inofensivo para texto normal, pero corrompía un archivo binario abierto por error (ver ROADMAP.md sección 7, ítem 1).
+- Copiar/cortar/pegar (`Mod+C`/`Mod+X`/`Mod+V`) no funcionaban en macOS, ni siquiera dentro del editor: faltaba un menú Edit nativo (`Cut`/`Copy`/`Paste`/`Select All`), sin el cual WKWebView no resuelve esos atajos.
+- `Mod+/` abría el panel de atajos en vez de comentar la línea (chocaba con el `toggleComment` de CodeMirror en las dos plataformas). El panel ahora usa `Mod+Shift+/`.
 
 ## [0.2.0] - 2026-08-20
 

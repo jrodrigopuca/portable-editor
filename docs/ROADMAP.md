@@ -125,7 +125,7 @@ Revisión del agente `qa` sobre flujos de archivo, encoding/EOL, sincronización
 
 **Crítico**
 
-1. **Abrir un archivo binario (PNG/PDF/ejecutable) y guardarlo lo corrompe, incluso sin editar nada** — verificado empíricamente con un PNG real. El fallback a Windows-1252 (`text_io.rs:48`) nunca falla al decodificar, así que un binario se "decodifica" como texto y se re-escribe en UTF-8 al guardar. Se agrava porque `saveFile()` (`main.ts:360-371`) no tiene guard de `doc.dirty` — corre siempre, aunque no haya cambios. Escala el ítem 4 de la sección 6 (que hablaba de texto no latino mal decodificado) al caso más severo: binario puro, destrucción total. Candidato a fix: detectar contenido no-texto al abrir (¿% de bytes de control / null bytes?) y avisar fuerte antes de permitir guardar, o al menos no pisar el archivo si no hubo `dirty`.
+1. ~~**Abrir un archivo binario (PNG/PDF/ejecutable) y guardarlo lo corrompe, incluso sin editar nada**~~ ✅ 2026-08-25 — doble fix: (a) `saveFile()` (`main.ts`) ahora no escribe si `doc.dirty` es `false`, cierra el caso más común (reflejo de `Mod+S` sin haber editado nada); (b) `read_file` agrega `likely_binary` (heurística de git: byte NUL en los primeros 8000 bytes — el fallback a Windows-1252 nunca falla al decodificar, así que es la única señal disponible), y `openFile()` pregunta antes de cargar un archivo que da positivo. `restoreSession()` queda afuera de (b) a propósito (mismo criterio que sus otros guards), cubierta igual por (a). Documentado en `ARCHITECTURE.md` trampa #22 y `CLAUDE.md` invariante #9. Tests nuevos en `text_io.rs` (`nul_byte_marks_content_as_likely_binary`, `plain_text_is_not_likely_binary`).
 
 **Medio-alto**
 

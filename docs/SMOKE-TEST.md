@@ -35,6 +35,8 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] Abrir un archivo de ~11 MB → abre editable pero sin highlighting ("Plain text (highlighting off, large file)" en la status bar)
 - [ ] Intentar abrir un archivo de más de 100 MB → rechaza con diálogo de error claro, no cuelga la app
 - [ ] Con un archivo abierto y sin ediciones: borrarlo desde otra terminal → status bar muestra "(deleted on disk)" en ~2 s; `Mod+S` abre "Save as" en vez de guardar en silencio
+- [ ] Abrir un archivo binario (ej. un `.png`) → aparece el diálogo de advertencia "doesn't look like a text file"; cancelar no lo abre, aceptar sí
+- [ ] Con un archivo de texto abierto SIN ediciones, `Mod+S` → no reescribe el archivo (verificar mtime sin cambios)
 
 ## Preferencias y sesión
 
