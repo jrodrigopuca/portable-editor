@@ -139,16 +139,17 @@ fn file_mtime(path: String) -> Result<u64, String> {
         .as_millis() as u64)
 }
 
-/// Builds the File menu (New/Open/Save/Save As) and a Help menu: Keyboard
+/// Builds the File menu (New/Open/Save/Save As), a macOS-only Edit menu
+/// (Cut/Copy/Paste/Select All — see below), and a Help menu: Keyboard
 /// Shortcuts (opens the in-app panel) everywhere; macOS also gets "Install
 /// CLI Command" (see `install_cli_command`), with About moved to the
 /// app-name menu instead (macOS convention) — other platforms get About in
 /// Help, since there's no package-manager PATH gap to fix there.
 ///
-/// Otherwise deliberately stops there: no Quit (Tauri's
-/// PredefinedMenuItem::quit bypasses onCloseRequested and skips the
-/// unsaved-changes guard — see docs/ARCHITECTURE.md), no Edit (CodeMirror
-/// owns undo/redo/clipboard via its own keymap, not the OS undo manager).
+/// No Quit item: Tauri's PredefinedMenuItem::quit bypasses onCloseRequested
+/// and skips the unsaved-changes guard — see docs/ARCHITECTURE.md. No
+/// Undo/Redo in Edit: CodeMirror owns those via its own state-based history,
+/// not the OS undo manager.
 ///
 /// Each item's accelerator makes the native menu the single owner of that
 /// shortcut; the equivalent keys are deliberately absent from the JS keydown
@@ -208,6 +209,26 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
     }
 
     menu_builder = menu_builder.item(&file_menu);
+
+    // macOS only: WKWebView resolves Cmd+C/V/X/A through AppKit's responder
+    // chain, which requires a menu item claiming that key equivalent — with
+    // no Edit menu at all, those shortcuts never reach the webview, not even
+    // for copy/paste within the editor itself. Undo/Redo are deliberately
+    // NOT here: CodeMirror owns those via its own state-based history (see
+    // module docs above), and wiring PredefinedMenuItem::undo/redo would
+    // route through the DOM's native undo instead, fighting CodeMirror's.
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::menu::PredefinedMenuItem;
+        let edit_menu = SubmenuBuilder::new(app, "Edit")
+            .item(&PredefinedMenuItem::cut(app, None)?)
+            .item(&PredefinedMenuItem::copy(app, None)?)
+            .item(&PredefinedMenuItem::paste(app, None)?)
+            .separator()
+            .item(&PredefinedMenuItem::select_all(app, None)?)
+            .build()?;
+        menu_builder = menu_builder.item(&edit_menu);
+    }
 
     let help_menu = {
         #[cfg(target_os = "macos")]
