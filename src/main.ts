@@ -534,13 +534,14 @@ const SHORTCUTS: readonly ShortcutEntry[] = [
   { keys: "Mod+Alt+G", action: "Go to line" },
   { keys: "Mod+Z", action: "Undo" },
   { keys: "Mod+Shift+Z", action: "Redo" },
+  { keys: "Mod+/", action: "Toggle line comment" },
   { keys: "Mod+D", action: "Select next occurrence" },
   { keys: "Alt+click", action: "Add cursor" },
   { keys: "Mod+=", action: "Increase font size" },
   { keys: "Mod+-", action: "Decrease font size" },
   { keys: "Mod+0", action: "Reset font size" },
   { keys: "Alt+Z", action: "Toggle word wrap" },
-  { keys: "Mod+/", action: "Show this panel" },
+  { keys: "Mod+Shift+/", action: "Show this panel" },
 ];
 
 const isMac = navigator.userAgent.includes("Mac");

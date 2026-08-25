@@ -188,8 +188,11 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
         ..Default::default()
     };
 
+    // Shift+/ (not plain Mod+/) so this doesn't steal CodeMirror's
+    // defaultKeymap binding for toggleComment (Mod-/) — a menu accelerator
+    // claims the key equivalent before the webview ever sees it.
     let shortcuts_item = MenuItemBuilder::with_id("shortcuts", "Keyboard Shortcuts")
-        .accelerator("CmdOrCtrl+/")
+        .accelerator("CmdOrCtrl+Shift+/")
         .build(app)?;
 
     let mut menu_builder = MenuBuilder::new(app);

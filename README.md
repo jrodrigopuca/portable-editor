@@ -46,10 +46,11 @@ brew install --cask portable-editor
 | `Mod + F`                         | Buscar / reemplazar |
 | `Mod + Alt + G`                   | Ir a línea           |
 | `Mod + Z` / `Mod + Shift + Z`     | Deshacer / rehacer  |
+| `Mod + /`                         | Comentar / descomentar línea |
 | `Mod + =` / `Mod + -` / `Mod + 0` | Tamaño de fuente    |
 | `Mod + D`                         | Seleccionar siguiente ocurrencia |
 | `Alt + Z`                         | Word wrap on/off    |
-| `Mod + /`                         | Mostrar atajos de teclado |
+| `Mod + Shift + /`                 | Mostrar atajos de teclado |
 
 ## Abrir archivos
 

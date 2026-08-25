@@ -56,7 +56,8 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] Menú **File** visible con New/Open…/Save/Save As…, cada uno con su atajo al lado
 - [ ] Los 4 atajos del File menu funcionan y no abren nada dos veces (probar Open y Save As en particular)
 - [ ] macOS: el primer menú (izquierda) muestra el nombre de la app, con "About portable-editor" adentro mostrando la versión correcta
-- [ ] `Mod+/` (o Help → Keyboard Shortcuts) abre el panel de atajos; `Esc`, la ✕ y el click afuera lo cierran
+- [ ] `Mod+Shift+/` (o Help → Keyboard Shortcuts) abre el panel de atajos; `Esc`, la ✕ y el click afuera lo cierran
+- [ ] `Mod+/` con el cursor en una línea la comenta/descomenta (no abre el panel de atajos)
 - [ ] Seleccionar texto en el editor, abrir el panel de atajos y cerrarlo con `Esc` → la selección sigue intacta (no se colapsa)
 - [ ] (Linux) `Mod+C` / `Mod+X` / `Mod+V` / `Mod+A` funcionan dentro del editor sin necesidad de un menú Edit (no hay ninguno en Linux, a diferencia de macOS)
 - [ ] `Mod+F` abre el panel de búsqueda con estilo consistente en los 4 temas (no el gris default de CodeMirror); la ✕ de cerrar se ve bien, no se superpone con otros controles
