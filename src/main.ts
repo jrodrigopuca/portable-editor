@@ -596,6 +596,7 @@ window.addEventListener(
   (event) => {
     if (event.key === "Escape" && !el.shortcutsPanel.hidden) {
       event.preventDefault();
+      event.stopPropagation();
       closeShortcuts();
       return;
     }
