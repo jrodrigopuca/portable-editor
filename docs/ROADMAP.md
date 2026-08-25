@@ -119,7 +119,38 @@ Pregunta distinta a las anteriores — no arquitectura/riesgo, sino uso real: *�
 
 ---
 
-## 7. Fase 5 — Distribución y alcance
+## 7. Hallazgos de revisión QA (2026-08-25)
+
+Revisión del agente `qa` sobre flujos de archivo, encoding/EOL, sincronización de estado UI, aperturas concurrentes y `localStorage` — posterior al fix de clipboard/`Mod+/` de esta misma fecha. Lo marcado "verificado" se comprobó reimplementando el algoritmo exacto de `text_io.rs` fuera de Rust (no se corrió `cargo build`/`cargo test`, reservados al dev); lo marcado "sospechado" es lectura de código sin correr la GUI. Se tachan a medida que se resuelven, mismo criterio que la sección 6.
+
+**Crítico**
+
+1. **Abrir un archivo binario (PNG/PDF/ejecutable) y guardarlo lo corrompe, incluso sin editar nada** — verificado empíricamente con un PNG real. El fallback a Windows-1252 (`text_io.rs:48`) nunca falla al decodificar, así que un binario se "decodifica" como texto y se re-escribe en UTF-8 al guardar. Se agrava porque `saveFile()` (`main.ts:360-371`) no tiene guard de `doc.dirty` — corre siempre, aunque no haya cambios. Escala el ítem 4 de la sección 6 (que hablaba de texto no latino mal decodificado) al caso más severo: binario puro, destrucción total. Candidato a fix: detectar contenido no-texto al abrir (¿% de bytes de control / null bytes?) y avisar fuerte antes de permitir guardar, o al menos no pisar el archivo si no hubo `dirty`.
+
+**Medio-alto**
+
+2. **EOL mixto (algunas líneas LF, otras CRLF) se homogeneiza en silencio** — verificado empíricamente. `text_io.rs:29` decide el EOL de TODO el archivo con un booleano (`contains("\r\n")`); guardar sin tocar nada convierte las líneas LF a CRLF, generando diff-churn en git sin ningún aviso (la status bar no distingue "mixed" de "CRLF").
+3. **`restoreSession()` falla en silencio total**, a diferencia de `openFile()` — si el último archivo de la sesión desapareció o perdió permisos, el usuario ve un "untitled" vacío sin ningún mensaje (`main.ts:355-357` vs `331-334`).
+4. **Aperturas CLI concurrentes sin lock** (sospechado, no reproducido) — a diferencia de `checkExternalChange()` (que sí tiene guard), el listener de `open-file` no serializa invocaciones solapadas; dos `portable-editor archivo.txt` casi simultáneos podrían generar diálogos apilados con resolución no determinística.
+5. **`DefaultHasher` (Rust) para la clave de recovery no está garantizado estable entre versiones del compilador** (`recovery.rs:7-11`) — documentado así por el propio Rust. Un cambio de toolchain entre releases podría dejar un recovery huérfano tras un crash, sin error visible.
+
+**Medio**
+
+6. Race chica en `checkExternalChange()`: la rama sin cambios locales no re-chequea `doc.dirty` después de su propio `await`, así que texto tipeado durante ese gap puede perderse (recuperable con `Ctrl+Z`, pero sin aviso).
+7. **El dirty flag no se limpia al deshacer hasta el estado ya guardado** — `onDocChanged` lo pone en `true` en cualquier cambio, incluyendo un Undo que devuelva el texto exactamente a lo que ya está en disco.
+8. Race entre `autosaveTick()` y el `clearRecovery()` fire-and-forget de `writeTo()` (`main.ts:379-391`) — en teoría podría re-crear un recovery obsoleto justo después de un guardado exitoso.
+9. `localStorage` sin `try/catch` en ningún punto de `main.ts` — riesgo bajo en un WebView nativo (no hay "modo privado"), pero no contemplado.
+
+**Bajo**
+
+10. Argumentos CLI que empiezan con `-` se ignoran en silencio (`lib.rs:308-319`, `387`) — y un archivo cuyo nombre real empieza con `-` nunca se puede abrir por CLI.
+11. `install_cli_command` pide contraseña de admin en toda reinstalación (`lib.rs:350-372`), aunque el directorio sea escribible — `AlreadyExists` siempre cae al camino de `osascript`.
+12. macOS "Open With" con multi-selección solo abre el primer archivo (`lib.rs:416-426`, `.next()`); el resto se descarta sin aviso.
+13. `PendingFile` es un slot único, no una cola — un segundo `RunEvent::Opened` durante el arranque frío pisa al primero.
+14. Fallback de tema corrupto usa `THEMES[0]` en vez de `themeById(DEFAULT_THEME_ID)` (`themes.ts:159-161`) — hoy coinciden, pero están cableados de forma independiente.
+15. `detectIndent()` (`indent.ts:20-44`) no tiene guard de tamaño, a diferencia del highlighting (`HIGHLIGHT_SIZE_LIMIT`) — podría colgar la UI un momento al abrir un archivo grande.
+
+## 8. Fase 5 — Distribución y alcance
 
 En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, descargas):
 
@@ -131,7 +162,7 @@ En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, de
 
 ---
 
-## 8. Reglas de decisión transversales
+## 9. Reglas de decisión transversales
 
 - **Robustez > features.** Un bug de pérdida de datos vale más que diez features nuevas.
 - **Presupuesto de complejidad:** cada dependencia nueva (npm o crate) se justifica por escrito en el PR. El proyecto se mantiene entendible por UNA persona en una tarde.
