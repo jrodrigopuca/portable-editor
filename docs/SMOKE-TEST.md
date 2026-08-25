@@ -19,6 +19,7 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] Con la app abierta, `portable-editor otro.txt` desde otra terminal reutiliza la ventana (single instance)
 - [ ] `portable-editor archivo-que-no-existe.txt` abre un editor vacío con ese nombre en la status bar (no otro archivo, no error) — guardar crea el archivo en ese path sin pedir ubicación
 - [ ] Con un archivo abierto y SIN cambios sin guardar: `portable-editor otro.txt` desde otra terminal pregunta antes de reemplazarlo (no lo hace en silencio)
+- [ ] Dos invocaciones CLI casi simultáneas (`portable-editor a.txt & portable-editor b.txt &` en la misma línea) → los dos diálogos de confirmación aparecen uno a la vez, en orden, no superpuestos; el resultado final es consistente con las respuestas dadas (no "gana" el que resuelve más rápido)
 - [ ] (macOS) Help → "Install 'portable-editor' Command" instala el symlink; `which portable-editor` lo resuelve desde una terminal nueva
 - [ ] Editar un archivo sin guardar, esperar >10s, matar el proceso (`kill -9`, no cerrar normal) → reabrir el mismo archivo pregunta si recuperar; aceptar muestra el contenido editado con el punto de "sin guardar"; guardar limpia el recovery
 - [ ] (Solo bundle instalado) "Open with..." desde Finder/file manager funciona

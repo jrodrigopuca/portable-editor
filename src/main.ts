@@ -688,10 +688,22 @@ void getCurrentWebview().onDragDropEvent((event) => {
 });
 
 // "Open with..." while the app is running (macOS) or a second CLI invocation
-// (single-instance): both emit open-file from Rust
+// (single-instance): both emit open-file from Rust. Two invocations arriving
+// close together (e.g. two `portable-editor file.txt` in quick succession)
+// would otherwise run their confirm dialogs and doc-state mutations
+// concurrently, with the resolution order depending on whichever dialog the
+// user closes first — unlike checkExternalChange()'s checkingExternal guard,
+// dropping the second one here isn't an option: there's no next poll to
+// catch it later, so it'd just discard a file the user explicitly asked to
+// open. Chain them through a serial queue instead — same order they arrived
+// in, one fully settled before the next starts.
+let openFileQueue: Promise<void> = Promise.resolve();
+
 void listen<StartupTarget>("open-file", (event) => {
   const { path, exists } = event.payload;
-  void (exists ? openFile(path, true) : openNewFileAt(path, true));
+  openFileQueue = openFileQueue
+    .catch(() => {}) // one failed open must not block the next
+    .then(() => (exists ? openFile(path, true) : openNewFileAt(path, true)));
 });
 
 // Native File menu clicks/accelerators (see src-tauri/src/lib.rs build_menu)
