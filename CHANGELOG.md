@@ -9,10 +9,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 - Disponible por Homebrew (macOS): `brew tap jrodrigopuca/tap && brew install --cask portable-editor`. Tap en [`jrodrigopuca/homebrew-tap`](https://github.com/jrodrigopuca/homebrew-tap).
 - Aviso al abrir un archivo que no parece texto (imagen, ejecutable, etc.): pregunta antes de cargarlo, en vez de "decodificarlo" en silencio como Windows-1252 y arriesgar corromperlo al guardar.
+- Indicador "(mixed)" junto a LF/CRLF en la status bar cuando un archivo mezcla ambos estilos de fin de línea.
 
 ### Corregido
 
 - `Mod+S` sin cambios sin guardar ya no reescribe el archivo. Antes, guardar sin haber editado nada re-encodeaba el contenido igual — inofensivo para texto normal, pero corrompía un archivo binario abierto por error (ver ROADMAP.md sección 7, ítem 1).
+- Un archivo con una sola línea de fin CRLF colada entre líneas LF (típico de pegar un snippet de Windows) ya no convierte el archivo entero a CRLF al guardar. La detección de EOL ahora es por mayoría de línea, no por "¿aparece CRLF en algún lado?" (ver ROADMAP.md sección 7, ítem 2).
 - Copiar/cortar/pegar (`Mod+C`/`Mod+X`/`Mod+V`) no funcionaban en macOS, ni siquiera dentro del editor: faltaba un menú Edit nativo (`Cut`/`Copy`/`Paste`/`Select All`), sin el cual WKWebView no resuelve esos atajos.
 - `Mod+/` abría el panel de atajos en vez de comentar la línea (chocaba con el `toggleComment` de CodeMirror en las dos plataformas). El panel ahora usa `Mod+Shift+/`.
 

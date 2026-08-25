@@ -71,6 +71,7 @@ interface DecodedFile {
   contents: string;
   encoding: string;
   eol: Eol;
+  mixed_eol: boolean;
   likely_binary: boolean;
 }
 
@@ -86,6 +87,8 @@ interface DocState {
   mtime: number | null;
   encoding: string;
   eol: Eol;
+  /** True when the file mixed LF and CRLF lines — `eol` is the majority, not the whole story. */
+  mixedEol: boolean;
   /** True once a poll finds `path` gone (deleted or renamed elsewhere). */
   missing: boolean;
   indent: IndentInfo;
@@ -97,6 +100,7 @@ const doc: DocState = {
   mtime: null,
   encoding: ENCODING_UTF8,
   eol: EOL.LF,
+  mixedEol: false,
   missing: false,
   indent: detectIndent(""),
 };
@@ -127,7 +131,7 @@ function updateStatus(): void {
   el.fileName.title = doc.path ?? "";
   el.dirtyDot.hidden = !doc.dirty;
   el.encoding.textContent = doc.encoding;
-  el.eol.textContent = doc.eol;
+  el.eol.textContent = doc.mixedEol ? `${doc.eol} (mixed)` : doc.eol;
   void appWindow.setTitle(`${doc.dirty ? "● " : ""}${fileLabel()} — ${APP_NAME}`);
 }
 
@@ -283,6 +287,7 @@ async function newFile(): Promise<void> {
   doc.mtime = null;
   doc.encoding = ENCODING_UTF8;
   doc.eol = EOL.LF;
+  doc.mixedEol = false;
   doc.missing = false;
   doc.indent = detectIndent("");
   updateStatus();
@@ -309,6 +314,7 @@ async function openNewFileAt(path: string, external = false): Promise<void> {
   doc.mtime = null;
   doc.encoding = ENCODING_UTF8;
   doc.eol = EOL.LF;
+  doc.mixedEol = false;
   doc.missing = false;
   doc.indent = detectIndent(contents);
   updateStatus();
@@ -334,6 +340,7 @@ async function openFile(presetPath?: string, external = false): Promise<void> {
     syncRecentCursor();
     doc.encoding = file.encoding;
     doc.eol = file.eol;
+    doc.mixedEol = file.mixed_eol;
     const contents = await checkRecovery(path, file.contents);
     doc.indent = detectIndent(contents);
     editor.setText(contents);
@@ -358,6 +365,7 @@ async function restoreSession(): Promise<void> {
     const file = await invoke<DecodedFile>("read_file", { path: last.path });
     doc.encoding = file.encoding;
     doc.eol = file.eol;
+    doc.mixedEol = file.mixed_eol;
     const contents = await checkRecovery(last.path, file.contents);
     doc.indent = detectIndent(contents);
     editor.setText(contents);
@@ -429,6 +437,7 @@ async function reloadFromDisk(): Promise<void> {
   const file = await invoke<DecodedFile>("read_file", { path: doc.path });
   doc.encoding = file.encoding;
   doc.eol = file.eol;
+  doc.mixedEol = file.mixed_eol;
   doc.indent = detectIndent(file.contents);
   editor.replaceText(file.contents);
   applyIndent();

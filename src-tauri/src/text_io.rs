@@ -16,25 +16,48 @@ pub fn size_limit_error(path: &str, size_bytes: u64) -> String {
 
 /// Decoded file contents plus the metadata needed to round-trip it: the
 /// encoding it was read in (display-only, save always writes UTF-8), the
-/// line ending style to restore on save, and whether the raw bytes look like
-/// binary data rather than text (see `looks_binary`).
+/// line ending style to restore on save (majority vote — see `detect_eol`),
+/// whether that file actually mixed both styles, and whether the raw bytes
+/// look like binary data rather than text (see `looks_binary`).
 #[derive(Serialize)]
 pub struct DecodedFile {
     pub contents: String,
     pub encoding: String,
     pub eol: String,
+    pub mixed_eol: bool,
     pub likely_binary: bool,
 }
 
 pub fn decode_file(bytes: &[u8]) -> DecodedFile {
     let (text, encoding) = decode_bytes(bytes);
-    let eol = if text.contains("\r\n") { "CRLF" } else { "LF" };
+    let (eol, mixed_eol) = detect_eol(&text);
     DecodedFile {
         contents: normalize_to_lf(&text),
         encoding: encoding.to_string(),
         eol: eol.to_string(),
+        mixed_eol,
         likely_binary: looks_binary(bytes),
     }
+}
+
+/// Majority vote between CRLF- and LF-terminated lines, not "any CRLF
+/// present" — that used to mean a single Windows-pasted line in an
+/// otherwise-LF file flipped the WHOLE file to CRLF on save, rewriting every
+/// other line's ending for a diff that should have touched one line.
+/// `mixed_eol` flags when both styles are actually present, regardless of
+/// which one wins the vote, so the caller can surface it instead of quietly
+/// picking one. A tie (equal counts, including the empty-file 0-0 case)
+/// resolves to LF.
+fn detect_eol(text: &str) -> (&'static str, bool) {
+    let crlf_count = text.matches("\r\n").count();
+    let lf_only_count = text.matches('\n').count() - crlf_count;
+    let mixed = crlf_count > 0 && lf_only_count > 0;
+    let eol = if crlf_count > lf_only_count {
+        "CRLF"
+    } else {
+        "LF"
+    };
+    (eol, mixed)
 }
 
 /// Same heuristic git/grep use to tell text from binary: a NUL byte can't
@@ -148,6 +171,29 @@ mod tests {
     fn keeps_lf_on_encode() {
         let bytes = encode_with_eol("line1\nline2\n", "LF");
         assert_eq!(bytes, b"line1\nline2\n");
+    }
+
+    #[test]
+    fn mostly_lf_with_one_crlf_line_stays_lf_and_flags_mixed() {
+        // Regression: this used to flip to CRLF on the presence of a single
+        // CRLF line, rewriting every other line's ending on save.
+        let decoded = decode_file("line1\nline2\nline3\r\n".as_bytes());
+        assert_eq!(decoded.eol, "LF");
+        assert!(decoded.mixed_eol);
+    }
+
+    #[test]
+    fn mostly_crlf_with_one_lf_line_stays_crlf_and_flags_mixed() {
+        let decoded = decode_file("line1\r\nline2\r\nline3\n".as_bytes());
+        assert_eq!(decoded.eol, "CRLF");
+        assert!(decoded.mixed_eol);
+    }
+
+    #[test]
+    fn uniform_eol_is_never_flagged_mixed() {
+        assert!(!decode_file("line1\nline2\n".as_bytes()).mixed_eol);
+        assert!(!decode_file("line1\r\nline2\r\n".as_bytes()).mixed_eol);
+        assert!(!decode_file(b"").mixed_eol);
     }
 
     #[test]
