@@ -81,7 +81,10 @@ export function describeIoError(err: IoError, path: string, operation: IoOperati
         ? `Could not save ${path}: its folder no longer exists.`
         : `${path} does not exist.`;
     case IO_ERROR_KIND.PERMISSION_DENIED:
-      return `Permission denied: ${path}.`;
+      // On macOS this is usually not a chmod problem but TCC: Desktop,
+      // Documents and Downloads need a per-app grant, and a denied or
+      // unanswered prompt surfaces as EPERM on every write after the first.
+      return `Permission denied: ${path}. On macOS, check System Settings → Privacy & Security → Files and Folders.`;
     case IO_ERROR_KIND.TOO_LARGE:
       return `${path} is ${formatMb(err.size)}, larger than portable-editor's ${formatMb(err.limit)} limit. Open it with a different tool.`;
     case IO_ERROR_KIND.OTHER:

@@ -7,6 +7,7 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] La app abre y muestra el editor vacío ("untitled", Ln 1 Col 1, Plain text)
 - [ ] Escribir texto → aparece el punto de sin-guardar (●) en status bar y título
 - [ ] `Mod+S` en archivo nuevo → abre "Save as", guarda, desaparece el ●
+- [ ] Tipear DURANTE un guardado (archivo grande ayuda) → el ● se mantiene; cerrar la ventana vuelve a preguntar. Ojo (macOS): probarlo fuera de `~/Downloads`/`~/Documents`/`~/Desktop` o con el bundle instalado — con `tauri dev` ahí TCC devuelve "Permission denied" que no es bug nuestro (trampa #57)
 - [ ] Editar y `Mod+S` → guarda directo sin diálogo
 - [ ] `Mod+Shift+S` → "Save as" con el path actual como default
 - [ ] `Mod+N` con cambios sin guardar → pide confirmación

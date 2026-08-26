@@ -33,7 +33,9 @@ describe("describeIoError", () => {
   it("permission_denied names the path", () => {
     expect(
       describeIoError({ kind: IO_ERROR_KIND.PERMISSION_DENIED }, "/etc/shadow", IO_OPERATION.SAVE),
-    ).toBe("Permission denied: /etc/shadow.");
+    ).toBe(
+      "Permission denied: /etc/shadow. On macOS, check System Settings → Privacy & Security → Files and Folders.",
+    );
   });
 
   it("too_large keeps path, size and limit in MB (same info the old Rust string had)", () => {
