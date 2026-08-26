@@ -136,7 +136,7 @@ Revisión del agente `qa` sobre flujos de archivo, encoding/EOL, sincronización
 
 **Medio**
 
-6. Race chica en `checkExternalChange()`: la rama sin cambios locales no re-chequea `doc.dirty` después de su propio `await`, así que texto tipeado durante ese gap puede perderse (recuperable con `Ctrl+Z`, pero sin aviso).
+6. ~~**Race chica en `checkExternalChange()`**~~ ✅ 2026-08-25 — el guard vive en `reloadFromDisk()` (llamado desde las dos ramas de `checkExternalChange()`, es donde está el único `await` real): compara `doc.dirty` antes y después del `invoke("read_file")`; si pasó de `false` a `true` durante la espera (el usuario tipeó justo en ese gap), pregunta antes de sobreescribir en vez de perder la edición en silencio. Diálogo compartido con la rama ya-dirty vía `confirmReloadDiscard()`, sin duplicar el string ni volver a preguntar cuando el caller ya confirmó. Documentado en `ARCHITECTURE.md` trampa #25.
 7. **El dirty flag no se limpia al deshacer hasta el estado ya guardado** — `onDocChanged` lo pone en `true` en cualquier cambio, incluyendo un Undo que devuelva el texto exactamente a lo que ya está en disco.
 8. Race entre `autosaveTick()` y el `clearRecovery()` fire-and-forget de `writeTo()` (`main.ts:379-391`) — en teoría podría re-crear un recovery obsoleto justo después de un guardado exitoso.
 9. `localStorage` sin `try/catch` en ningún punto de `main.ts` — riesgo bajo en un WebView nativo (no hay "modo privado"), pero no contemplado.

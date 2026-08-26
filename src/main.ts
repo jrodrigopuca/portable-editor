@@ -432,9 +432,28 @@ async function refreshMtime(): Promise<void> {
   }
 }
 
+/** Shared prompt for "disk changed, you have unsaved changes" — asked both
+ * up front (checkExternalChange, already dirty) and after the fact
+ * (reloadFromDisk, if a race made it dirty mid-read — see there). */
+async function confirmReloadDiscard(): Promise<boolean> {
+  return ask("The file changed on disk and you have unsaved changes. Reload it and discard them?", {
+    title: APP_NAME,
+    kind: "warning",
+  });
+}
+
 async function reloadFromDisk(): Promise<void> {
   if (doc.path === null) return;
+  const dirtyBeforeRead = doc.dirty;
   const file = await invoke<DecodedFile>("read_file", { path: doc.path });
+  // The read above is the only await in here — if the user typed while it
+  // was in flight, doc.dirty flips to true DURING this call, with no caller
+  // aware of it. Silently overwriting would discard that edit with nothing
+  // beyond a bare Ctrl+Z the user has no reason to reach for. Only ask here
+  // if THIS call is what caused dirty to turn true: if the caller already
+  // confirmed discarding (checkExternalChange's dirty branch), doc.dirty
+  // was already true going in, so this is a no-op for that path.
+  if (!dirtyBeforeRead && doc.dirty && !(await confirmReloadDiscard())) return;
   doc.encoding = file.encoding;
   doc.eol = file.eol;
   doc.mixedEol = file.mixed_eol;
@@ -482,11 +501,7 @@ async function checkExternalChange(): Promise<void> {
       await reloadFromDisk();
       return;
     }
-    const reload = await ask(
-      "The file changed on disk and you have unsaved changes. Reload it and discard them?",
-      { title: APP_NAME, kind: "warning" },
-    );
-    if (reload) await reloadFromDisk();
+    if (await confirmReloadDiscard()) await reloadFromDisk();
   } catch {
     // Deleted, renamed, or temporarily unreadable: don't nag with a dialog,
     // just flag it so the next save asks where to put the file instead of
