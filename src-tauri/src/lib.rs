@@ -358,7 +358,9 @@ const CLI_TARGET: &str = "/usr/local/bin/portable-editor";
 /// quotes or other shell metacharacters can't break out of the command run
 /// with administrator privileges.
 #[tauri::command]
-fn install_cli_command() -> Result<String, String> {
+/// `Ok(None)` = the user cancelled the admin prompt: nothing to tell them,
+/// they just did it. `Err` = a real failure, with the manual fallback.
+fn install_cli_command() -> Result<Option<String>, String> {
     #[cfg(not(target_os = "macos"))]
     {
         Err(
@@ -373,7 +375,9 @@ fn install_cli_command() -> Result<String, String> {
         let exe = std::env::current_exe().map_err(|e| format!("Could not locate the app: {e}"))?;
         let _ = std::fs::create_dir_all("/usr/local/bin");
         if std::os::unix::fs::symlink(&exe, CLI_TARGET).is_ok() {
-            return Ok("Installed. Open a new terminal and run: portable-editor".to_string());
+            return Ok(Some(
+                "Installed. Open a new terminal and run: portable-editor".to_string(),
+            ));
         }
 
         // AlreadyExists is the common re-run case (already installed, or the
@@ -393,7 +397,9 @@ fn install_cli_command() -> Result<String, String> {
             && std::fs::remove_file(CLI_TARGET).is_ok()
             && std::os::unix::fs::symlink(&exe, CLI_TARGET).is_ok()
         {
-            return Ok("Installed. Open a new terminal and run: portable-editor".to_string());
+            return Ok(Some(
+                "Installed. Open a new terminal and run: portable-editor".to_string(),
+            ));
         }
 
         let script = r#"on run argv
@@ -407,18 +413,27 @@ end run"#;
         // must not accept input behind a modal privilege prompt, and the
         // prompt itself is the only thing the user can interact with. Don't
         // make this `async` without replacing the block with a real modal.
-        let status = std::process::Command::new("osascript")
+        let output = std::process::Command::new("osascript")
             .arg("-e")
             .arg(script)
             .arg(exe.to_string_lossy().as_ref())
             .arg(CLI_TARGET)
-            .status()
+            .output()
             .map_err(|e| format!("Could not run osascript: {e}"))?;
 
-        if status.success() {
-            Ok("Installed. Open a new terminal and run: portable-editor".to_string())
+        if output.status.success() {
+            Ok(Some(
+                "Installed. Open a new terminal and run: portable-editor".to_string(),
+            ))
+        } else if String::from_utf8_lossy(&output.stderr).contains("-128") {
+            // AppleScript's "User canceled." error code: they closed the
+            // password sheet. Not a failure, and not news to them.
+            Ok(None)
         } else {
-            Err("Installation was cancelled or failed.".to_string())
+            Err(format!(
+                "Could not install the command. You can do it by hand:\n  sudo ln -sf \"{}\" {CLI_TARGET}",
+                exe.display()
+            ))
         }
     }
 }

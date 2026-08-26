@@ -11,21 +11,22 @@
     <main id="app">
       <div id="editor"></div>
       <footer id="statusbar">
-        <button type="button" id="btn-new" title="New file (⌘/Ctrl+N)">New</button>
-        <button type="button" id="btn-open" title="Open file (⌘/Ctrl+O)">Open</button>
-        <button type="button" id="btn-save" title="Save (⌘/Ctrl+S)">Save</button>
+        <button type="button" id="btn-new" title="New file">New</button>
+        <button type="button" id="btn-open" title="Open file">Open</button>
+        <button type="button" id="btn-save" title="Save">Save</button>
         <select id="recent-select" title="Recent files" hidden></select>
         <span class="separator"></span>
         <span id="file-name">untitled</span>
         <span id="file-dirty" hidden>●</span>
         <span class="spacer"></span>
-        <button type="button" id="btn-wrap" title="Line wrapping (Alt+Z)">Wrap: off</button>
+        <button type="button" id="btn-wrap" title="Line wrapping">Wrap: off</button>
         <span id="cursor-pos">Ln 1, Col 1</span>
         <span id="language">Plain text</span>
-        <span id="encoding">UTF-8</span>
-        <span id="eol">LF</span>
+        <span id="encoding" hidden>UTF-8</span>
+        <span id="eol" hidden>LF</span>
         <button type="button" id="btn-indent" title="Indentation (click to change)">Spaces: 2</button>
         <select id="theme-select" title="Editor theme"></select>
+        <button type="button" id="btn-shortcuts" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
       </footer>
     </main>
     <div id="shortcuts-panel" hidden>

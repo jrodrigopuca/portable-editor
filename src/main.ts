@@ -7,6 +7,8 @@ import {
   type DocState,
   docFromFile,
   docFromRecovery,
+  ENCODING_UTF8,
+  EOL,
   EXTERNAL_CHANGE,
   emptyDoc,
   externalChangeDecision,
@@ -93,6 +95,7 @@ const el = {
   shortcutsBackdrop: byId<HTMLDivElement>("shortcuts-backdrop"),
   shortcutsList: byId<HTMLTableElement>("shortcuts-list"),
   btnCloseShortcuts: byId<HTMLButtonElement>("btn-close-shortcuts"),
+  btnShortcuts: byId<HTMLButtonElement>("btn-shortcuts"),
 };
 
 /** macOS "Open With" on a multi-selection hands the app every file at once;
@@ -151,8 +154,16 @@ function updateStatus(): void {
   el.fileName.textContent = doc.missing ? `${fileLabel()} (deleted on disk)` : fileLabel();
   el.fileName.title = doc.path ?? "";
   el.dirtyDot.hidden = !doc.dirty;
+  // Encoding and EOL are shown only when they're NOT the defaults: "UTF-8"
+  // and "LF" on every file are noise, and hiding them is what makes
+  // "Windows-1252" or "(mixed)" stand out the one time it matters.
   el.encoding.textContent = doc.encoding;
+  el.encoding.hidden = doc.encoding === ENCODING_UTF8;
   el.eol.textContent = doc.mixedEol ? `${doc.eol} (mixed)` : doc.eol;
+  el.eol.hidden = doc.eol === EOL.LF && !doc.mixedEol;
+  el.eol.title = doc.mixedEol
+    ? `Mixed line endings; will be saved as ${doc.eol}`
+    : `Line endings: ${doc.eol}`;
   void appWindow.setTitle(`${doc.dirty ? "● " : ""}${fileLabel()} — ${APP_NAME}`);
 }
 
@@ -170,9 +181,36 @@ async function applyLanguage(): Promise<void> {
   el.language.textContent = await editor.detectLanguage(doc.path);
 }
 
+/** Button labels of the unsaved-changes dialog; `message()` resolves to the
+ * label the user picked. Order matters: the first is Enter's default and
+ * `cancel` is Esc — so both reflexes land on the SAFE side. */
+const UNSAVED_CHOICE = {
+  SAVE: "Save",
+  DONT_SAVE: "Don't Save",
+  CANCEL: "Cancel",
+} as const;
+
+/**
+ * "May we throw the current buffer away?" — asked before New, Open, Close.
+ * Three buttons, like every desktop editor: Save (the common intent, and
+ * Enter's default), Don't Save (explicit, never a reflex), Cancel (Esc).
+ * Resolves true when the caller may proceed: the user saved, or chose to
+ * lose the edits. Runs inside the document queue (every caller does), so
+ * saving here calls run* directly — see the queue comment below.
+ */
 async function confirmDiscard(): Promise<boolean> {
   if (!doc.dirty) return true;
-  return ask("You have unsaved changes. Discard them?", { title: APP_NAME, kind: "warning" });
+  const choice = await message("You have unsaved changes.", {
+    title: APP_NAME,
+    kind: "warning",
+    buttons: {
+      yes: UNSAVED_CHOICE.SAVE,
+      no: UNSAVED_CHOICE.DONT_SAVE,
+      cancel: UNSAVED_CHOICE.CANCEL,
+    },
+  });
+  if (choice === UNSAVED_CHOICE.SAVE) return runSaveFile();
+  return choice === UNSAVED_CHOICE.DONT_SAVE;
 }
 
 /**
@@ -188,6 +226,8 @@ async function confirmExternalReplace(incomingPath: string): Promise<boolean> {
   return ask(`Open "${basename(incomingPath)}"? This replaces "${fileLabel()}" in this window.`, {
     title: APP_NAME,
     kind: "warning",
+    okLabel: "Open",
+    cancelLabel: "Cancel",
   });
 }
 
@@ -201,7 +241,7 @@ async function confirmExternalReplace(incomingPath: string): Promise<boolean> {
 async function confirmOpenBinary(path: string): Promise<boolean> {
   return ask(
     `"${basename(path)}" doesn't look like a text file. Opening and saving it could corrupt it. Open anyway?`,
-    { title: APP_NAME, kind: "warning" },
+    { title: APP_NAME, kind: "warning", okLabel: "Open anyway", cancelLabel: "Cancel" },
   );
 }
 
@@ -276,15 +316,21 @@ async function checkRecovery(path: string, diskContents: string): Promise<string
   }
   if (recovered === null || recovered === diskContents) return diskContents;
 
-  const useRecovered = await ask(
-    "portable-editor didn't close cleanly last time this file was open. Recover the unsaved changes?",
-    { title: APP_NAME, kind: "warning" },
+  // The user decides without having seen either version, and deleting is
+  // irreversible — so Enter (first button) uses the recovery, Esc keeps it
+  // for another launch, and deleting is a deliberate third click. "Later"
+  // holds only until the next edit: autosave then overwrites the snapshot.
+  const choice = await message(
+    `Unsaved changes to "${basename(path)}" were recovered from the last session (portable-editor didn't close cleanly). Use them?`,
+    {
+      title: APP_NAME,
+      kind: "warning",
+      buttons: { yes: "Use recovered", no: "Delete recovery", cancel: "Decide later" },
+    },
   );
-  if (!useRecovered) {
-    void clearRecovery(path);
-    return diskContents;
-  }
-  return recovered;
+  if (choice === "Use recovered") return recovered;
+  if (choice === "Delete recovery") void clearRecovery(path);
+  return diskContents;
 }
 
 /** Shared tail of every "a real file is now on screen" flow. It doesn't
@@ -318,17 +364,20 @@ const { exclusive } = createSerialQueue();
 const newFile = (): Promise<void> => exclusive(runNewFile);
 const openFile = (presetPath?: string, external = false): Promise<void> =>
   presetPath === undefined
-    ? withPicker(runOpenFile)
+    ? withPicker(async () => {
+        await runOpenFile();
+        return true;
+      }).then(() => {})
     : exclusive(() => runOpenFile(presetPath, external));
-const saveFile = (): Promise<void> => exclusive(runSaveFile);
-const saveFileAs = (): Promise<void> => withPicker(runSaveFileAs);
+const saveFile = (): Promise<boolean> => exclusive(runSaveFile);
+const saveFileAs = (): Promise<boolean> => withPicker(runSaveFileAs);
 
 // Flows that open a native file picker coalesce instead of queueing: five
 // quick Mod+O presses mean "open a file", not "show me five dialogs in a
 // row". While one is pending (queued or on screen) the rest are dropped.
 let pickerPending = false;
-function withPicker(task: () => Promise<void>): Promise<void> {
-  if (pickerPending) return Promise.resolve();
+function withPicker(task: () => Promise<boolean>): Promise<boolean> {
+  if (pickerPending) return Promise.resolve(false);
   pickerPending = true;
   return exclusive(task).finally(() => {
     pickerPending = false;
@@ -389,12 +438,15 @@ async function runOpenFile(presetPath?: string, external = false): Promise<void>
     await afterFileLoaded(path);
     editor.focus();
   } catch (err) {
-    await message(errorMessage(err, path, IO_OPERATION.READ, platform), {
-      title: APP_NAME,
-      kind: "error",
-    });
+    await message(readErrorMessage(err, path), { title: APP_NAME, kind: "error" });
     if (isGone(err)) forgetRecent(path);
   }
+}
+
+/** The dialog for a failed read: the error, plus the one side effect it has. */
+function readErrorMessage(err: unknown, path: string): string {
+  const base = errorMessage(err, path, IO_OPERATION.READ, platform);
+  return isGone(err) ? `${base} It was removed from Recent.` : base;
 }
 
 /** Only a file that no longer exists deserves eviction from Recent — a
@@ -416,33 +468,31 @@ async function restoreSession(): Promise<void> {
     await afterFileLoaded(last.path);
     editor.setCursor(last.line, last.col);
   } catch (err) {
-    await message(errorMessage(err, last.path, IO_OPERATION.READ, platform), {
-      title: APP_NAME,
-      kind: "error",
-    });
+    await message(readErrorMessage(err, last.path), { title: APP_NAME, kind: "error" });
     if (isGone(err)) forgetRecent(last.path);
   }
 }
 
-async function runSaveFile(): Promise<void> {
+/** Resolves true if the buffer is on disk afterwards (written, or nothing to write). */
+async function runSaveFile(): Promise<boolean> {
   // No known-good path to overwrite: either untitled, or the file vanished
   // from under us (deleted/renamed) — let the user pick where it goes.
-  if (doc.path === null || doc.missing) {
-    await runSaveFileAs();
-    return;
-  }
+  if (doc.path === null || doc.missing) return runSaveFileAs();
   // Nothing changed: skip the write entirely. Matters most for a file that
   // was never real text to begin with (see confirmOpenBinary) — a reflexive
   // Mod+S with no edits must not re-encode and clobber it.
-  if (!doc.dirty) return;
-  if (await writeTo(doc.path)) updateStatus();
+  if (!doc.dirty) return true;
+  const written = await writeTo(doc.path);
+  if (written) updateStatus();
+  return written;
 }
 
-async function runSaveFileAs(): Promise<void> {
+/** Resolves true if the buffer was written to the chosen path. */
+async function runSaveFileAs(): Promise<boolean> {
   const path = await saveDialog({ title: "Save as", defaultPath: doc.path ?? undefined });
-  if (path === null) return;
+  if (path === null) return false;
   const previousPath = doc.path;
-  if (!(await writeTo(path))) return;
+  if (!(await writeTo(path))) return false;
   // writeTo() cleared the recovery for the NEW path; the old one (written by
   // autosaveTick while this doc was dirty) would otherwise linger and offer
   // "recover?" content the user already saved elsewhere.
@@ -451,6 +501,7 @@ async function runSaveFileAs(): Promise<void> {
   // drop out, and the file is known to exist at its new path.
   becomeDocument({ ...doc, path, missing: false });
   await afterFileLoaded(path);
+  return true;
 }
 
 async function writeTo(path: string): Promise<boolean> {
@@ -488,9 +539,13 @@ async function writeTo(path: string): Promise<boolean> {
  * up front (checkExternalChange, already dirty) and after the fact
  * (reloadFromDisk, if a race made it dirty mid-read — see there). */
 async function confirmReloadDiscard(): Promise<boolean> {
-  return ask("The file changed on disk and you have unsaved changes. Reload it and discard them?", {
+  // Names the file: this dialog can pop while the user is looking at
+  // another window, with no idea which document it's about.
+  return ask(`"${fileLabel()}" changed on disk. Reload it and lose your unsaved changes?`, {
     title: APP_NAME,
     kind: "warning",
+    okLabel: "Reload from disk",
+    cancelLabel: "Keep my changes",
   });
 }
 
@@ -688,6 +743,9 @@ const SHORTCUTS: readonly ShortcutEntry[] = [
   { keys: "Mod+Shift+S", action: "Save as" },
   { keys: "Mod+N", action: "New file" },
   { keys: "Mod+F", action: "Find / replace" },
+  { keys: "Mod+G", action: "Find next (Shift: previous)" },
+  { keys: "Esc", action: "Close find / this panel" },
+  { keys: "Tab", action: "Indent (Shift+Tab: dedent)" },
   { keys: "Mod+Alt+G", action: "Go to line" },
   { keys: "Mod+Z", action: "Undo" },
   { keys: "Mod+Shift+Z", action: "Redo" },
@@ -714,6 +772,12 @@ function formatKeys(keys: string): string {
 }
 
 function renderShortcuts(): void {
+  // Tooltips carry the shortcut for THIS platform (⌘N, not "⌘/Ctrl+N").
+  el.btnNew.title = `New file (${formatKeys("Mod+N")})`;
+  el.btnOpen.title = `Open file (${formatKeys("Mod+O")})`;
+  el.btnSave.title = `Save (${formatKeys("Mod+S")})`;
+  el.btnWrap.title = `Line wrapping (${formatKeys("Alt+Z")})`;
+  el.btnShortcuts.title = `Keyboard shortcuts (${formatKeys("Mod+Shift+/")})`;
   el.shortcutsList.replaceChildren();
   for (const { keys, action } of SHORTCUTS) {
     const row = document.createElement("tr");
@@ -739,7 +803,7 @@ function closeShortcuts(): void {
 async function installCliCommand(): Promise<void> {
   try {
     const result = await ipc.installCliCommand();
-    await message(result, { title: APP_NAME });
+    if (result !== null) await message(result, { title: APP_NAME }); // null: the user cancelled the admin prompt — they know
   } catch (err) {
     await message(String(err), { title: APP_NAME, kind: "error" });
   }
@@ -795,9 +859,10 @@ void appWindow.onCloseRequested(async (event) => {
       event.preventDefault();
       return;
     }
-    // The user threw these edits away on purpose: without this, the next
-    // launch would claim "didn't close cleanly" and offer to recover them.
-    // Awaited, so the window doesn't go down with the delete still in flight.
+    // Saved, or thrown away on purpose: either way the snapshot is stale,
+    // and without this the next launch would claim "didn't close cleanly"
+    // and offer to recover it. Awaited, so the window doesn't go down with
+    // the delete still in flight.
     await clearRecovery(doc.path);
   });
 });
@@ -881,6 +946,7 @@ void listen<string>("menu-action", (event) => {
   }
 });
 
+el.btnShortcuts.addEventListener("click", () => openShortcuts());
 el.btnCloseShortcuts.addEventListener("click", () => closeShortcuts());
 el.shortcutsBackdrop.addEventListener("click", () => closeShortcuts());
 

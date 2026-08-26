@@ -19,7 +19,7 @@ Construido con [Tauri 2](https://tauri.app) (backend nativo en Rust, ~10-15 MB) 
 - **Instancia única**: abrir otro archivo por terminal reutiliza la ventana existente
 - **Archivos recientes** y restauración de sesión: reabre el último archivo en la misma línea y columna
 - **Multi-cursor** (`Alt+click`) y selección de siguiente ocurrencia (`Mod+D`), de fábrica con CodeMirror
-- **Detección de encoding** (BOM UTF-8/UTF-16, o Windows-1252 como fallback para texto legado sin BOM) y de fin de línea (LF/CRLF), visibles en la status bar. El guardado siempre escribe UTF-8, preservando el estilo de fin de línea original
+- **Detección de encoding** (BOM UTF-8/UTF-16, o Windows-1252 como fallback para texto legado sin BOM) y de fin de línea (LF/CRLF), visibles en la status bar solo cuando NO son los defaults (UTF-8 / LF) — así "Windows-1252" o "(mixed)" se notan la vez que importa. El guardado siempre escribe UTF-8, preservando el estilo de fin de línea original
 - **Detección de indentación** (tabs vs. espacios, y el ancho) al abrir un archivo; botón en la status bar para cambiarla manualmente (2/4/8 espacios o tabs)
 
 ## Instalación
@@ -44,6 +44,9 @@ brew install --cask portable-editor
 | `Mod + Shift + S`                 | Guardar como        |
 | `Mod + N`                         | Nuevo archivo       |
 | `Mod + F`                         | Buscar / reemplazar |
+| `Mod + G` / `Mod + Shift + G`     | Siguiente / anterior coincidencia |
+| `Esc`                             | Cerrar búsqueda / panel de atajos |
+| `Tab` / `Shift + Tab`             | Indentar / desindentar |
 | `Mod + Alt + G`                   | Ir a línea           |
 | `Mod + Z` / `Mod + Shift + Z`     | Deshacer / rehacer  |
 | `Mod + /`                         | Comentar / descomentar línea |

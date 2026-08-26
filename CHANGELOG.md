@@ -7,6 +7,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 ### Agregado
 
+- Al cerrar, crear o abrir con cambios sin guardar, el diálogo es **Save / Don't Save / Cancel** (Enter guarda, Esc cancela) — antes era Yes/No, y guardar al cerrar costaba tres pasos (ver ROADMAP.md sección 11, ítems 1 y 6).
+- El aviso de recuperación tras un cierre abrupto tiene tres opciones: usar lo recuperado (Enter), decidir después (Esc — el snapshot se conserva) o borrarlo; antes Esc lo borraba para siempre (ver ROADMAP.md sección 11, ítem 1).
+- Los demás diálogos tienen botones con verbo ("Reload from disk" / "Keep my changes", "Open anyway" / "Cancel", …) en vez de Yes/No, y el de recarga nombra el archivo (ver ROADMAP.md sección 11, ítem 1).
+- Status bar: lo clickeable se distingue (subrayado punteado), el foco de teclado es visible, el punto de "sin guardar" se ve en temas claros, y el nombre del archivo tiene más peso (ver ROADMAP.md sección 11, ítem 2).
+- Encoding y fin de línea solo se muestran cuando no son UTF-8 / LF — así "Windows-1252" o "(mixed)" se notan; "(mixed)" explica en el tooltip que se guardará como LF (ver ROADMAP.md sección 11, ítem 3).
+- Tooltips de New/Open/Save/Wrap con el atajo de la plataforma actual; botón "?" en la status bar para abrir el panel de atajos; el panel lista además `Mod+G`, `Esc` y `Tab` (ver ROADMAP.md sección 11, ítems 4 y 5).
+- Al no poder abrir un archivo porque ya no existe, el mensaje avisa que se quitó de Recientes; (macOS) cancelar el prompt de contraseña de "Install … Command" ya no muestra un error, y un fallo real trae el comando para hacerlo a mano (ver ROADMAP.md sección 11, ítem 5).
 - Cerrar la ventana justo después de guardar un archivo grande espera a que el guardado termine antes de preguntar por cambios sin guardar (ver ROADMAP.md sección 10, ítem 5).
 - Presionar `Mod+O` o `Mod+Shift+S` varias veces seguidas ya no abre varios diálogos en fila: mientras hay uno pendiente, los demás se ignoran (ver ROADMAP.md sección 10, ítem 7).
 - Una recarga por cambio externo cuyo contenido ya coincide con el editor ya no agrega un paso de deshacer vacío ni mueve el scroll (ver ROADMAP.md sección 10, ítem 4).

@@ -5,7 +5,14 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 ## Básicos
 
 - [ ] La app abre y muestra el editor vacío ("untitled", Ln 1 Col 1, Plain text)
-- [ ] Escribir texto → aparece el punto de sin-guardar (●) en status bar y título
+- [ ] Escribir texto → aparece el punto de sin-guardar (●) en status bar y título — también visible en Paper / Solarized Light (marrón, no amarillo)
+- [ ] Archivo UTF-8 con LF → la status bar NO muestra "UTF-8" ni "LF" (solo aparecen cuando no son el default)
+- [ ] Con cambios sin guardar, `Mod+N` / `Mod+O` / cerrar → diálogo **Save / Don't Save / Cancel**; Enter = Save (guarda y sigue), Esc = Cancel (no pasa nada), "Don't Save" descarta. En archivo untitled, Save abre "Save as"; cancelarlo = Cancel
+- [ ] Recovery al reabrir tras `kill -9`: tres botones — Enter = "Use recovered", Esc = "Decide later" (abre el disco, el snapshot queda y vuelve a preguntar en el próximo arranque), "Delete recovery" borra
+- [ ] Recargar/reemplazo/binario: botones con verbo ("Reload from disk" / "Keep my changes", "Open" / "Cancel", "Open anyway" / "Cancel"); Enter en "Reload from disk" → Ctrl+Z restaura lo tuyo
+- [ ] (Linux/GTK) Repetir los tres puntos anteriores: mismo orden de botones y mismo default
+- [ ] Botón "?" al final de la status bar abre el panel de atajos; tooltips de New/Open/Save muestran solo el atajo de esta plataforma (⌘N o Ctrl+N, no ambos)
+- [ ] Tab con el foco en un select de la status bar → se ve un outline de foco
 - [ ] `Mod+S` en archivo nuevo → abre "Save as", guarda, desaparece el ●
 - [ ] Tipear DURANTE un guardado (archivo grande ayuda) → el ● se mantiene; cerrar la ventana vuelve a preguntar. Ojo (macOS): probarlo fuera de `~/Downloads`/`~/Documents`/`~/Desktop` o con el bundle instalado — con `tauri dev` ahí TCC devuelve "Permission denied" que no es bug nuestro (trampa #57)
 - [ ] Editar → `Mod+S` → `Mod+W` inmediato (archivo grande) → NO pregunta "discard" mientras escribe; espera al guardado y cierra limpio
@@ -27,6 +34,7 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] Dos invocaciones CLI casi simultáneas (`portable-editor a.txt & portable-editor b.txt &` en la misma línea) → los dos diálogos de confirmación aparecen uno a la vez, en orden, no superpuestos; el resultado final es consistente con las respuestas dadas (no "gana" el que resuelve más rápido)
 - [ ] (macOS) Help → "Install 'portable-editor' Command" instala el symlink; `which portable-editor` lo resuelve desde una terminal nueva
 - [ ] (macOS) Correr "Install 'portable-editor' Command" una segunda vez (ya instalado) → NO pide contraseña de administrador
+- [ ] (macOS) Cancelar el prompt de contraseña de "Install … Command" → ningún diálogo (antes: "Installation was cancelled or failed")
 - [ ] Editar un archivo sin guardar, esperar >10s, matar el proceso (`kill -9`, no cerrar normal) → reabrir el mismo archivo pregunta si recuperar; aceptar muestra el contenido editado con el punto de "sin guardar"; guardar limpia el recovery
 - [ ] (Solo bundle instalado) "Open with..." desde Finder/file manager funciona
 - [ ] (macOS, bundle instalado) Seleccionar 2+ archivos en Finder → "Open With" → portable-editor: abre el primero y muestra un diálogo avisando cuántos no se abrieron

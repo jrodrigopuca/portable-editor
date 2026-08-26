@@ -245,7 +245,30 @@ Tercera ronda (`architect` + `qa`) sobre §9. Veredicto compartido: la cola cump
 
 **Sin verificar (ambos revisores):** GUI/diálogos, timing real de segunda instancia en frío, CSP en bundle, `Opened` en runtime, TCC.
 
-## 11. Fase 5 — Distribución y alcance
+## 11. Revisión UX/UI (2026-08-26, sobre `HEAD` tras §10)
+
+Revisión del agente `ux-ui` desde código y CSS (sin correr la GUI; contrastes calculados WCAG sobre los hex, no medidos). Veredicto: *los flujos están mejor pensados que la mayoría de editores mini; la capa de copy de diálogos y el chrome de la status bar están un escalón abajo del rigor del backend.* Verificado a mano: `@tauri-apps/plugin-dialog` instalado es 2.7.1 (`okLabel`/`cancelLabel` en `ask`, `buttons` en `message`); los cinco `ask` de `main.ts` van sin labels; `#file-dirty` es un color fijo; los selects tienen `outline: none`. Lo que está bien y NO se toca: undo-hasta-limpio, `(deleted on disk)` como patrón, los diálogos de reemplazo CLI y de binario, los mensajes de `too_large`/`permission_denied`, el menú nativo.
+
+**Bloque A — Copy y CSS (sin cambio de comportamiento)**
+
+1. ~~**Cinco `ask` con "Yes/No" donde "Yes" a veces es "abrir" y a veces "destruir mi trabajo"**~~ ✅ 2026-08-26 — `okLabel`/`cancelLabel` en los cinco `ask`; recovery y reload reescritos nombrando el archivo. Verificado en vivo por el autor: en macOS Enter dispara el `okLabel` — con "Discard" ahí, Enter tiraba el trabajo, e invertir labels hubiera puesto el destructivo en Esc. Resuelto absorbiendo el ítem 6: `confirmDiscard` es Save / Don't Save / Cancel (`message()` con `buttons` custom devuelve el label; `runSaveFile`/`runSaveFileAs` devuelven `boolean`); recovery es "Use recovered" / "Delete recovery" / "Decide later" (Esc conserva el snapshot). Los `ask` de dos botones que quedan tienen Enter en algo reversible (reload → Ctrl+Z) o inocuo. Trampa #61. **Pendiente en GTK** (SMOKE-TEST).
+2. ~~**Status bar: affordance y contraste**~~ ✅ 2026-08-26 — `styles.css`: subrayado punteado en button/select (sólido en hover), `:focus-visible`, `#file-dirty` por tema (`#9a6700` en claro), `#file-name` en 500, opacidad .8 eliminada. Trampa #62.
+3. ~~**"UTF-8" y "LF" son ruido el 99 % del tiempo y el 1 % no destaca**~~ ✅ 2026-08-26 — `updateStatus`: `encoding.hidden` si UTF-8, `eol.hidden` si LF sin mezcla; ambos en 500 cuando aparecen; tooltip del EOL. README actualizado. Trampa #62.
+4. ~~**Tooltips de botones estáticos "⌘/Ctrl+N" (ambas plataformas a la vez, inconsistente con el panel que sí distingue)**~~ ✅ 2026-08-26 — `renderShortcuts` setea los `title` de New/Open/Save/Wrap/? con `formatKeys`; `index.html` sin atajos hardcodeados.
+5. ~~**Copy menor**~~ ✅ 2026-08-26 — `readErrorMessage` agrega "It was removed from Recent." solo cuando `isGone`; `install_cli_command -> Result<Option<String>, String>` (`Ok(None)` = cancel, detectado por `-128` en stderr de `osascript`; `Err` con el `ln -sf` manual); `SHORTCUTS` + README con `Mod+G`, `Esc`, `Tab`; botón `#btn-shortcuts` ("?") al final de la status bar. Trampa #61.
+
+**Bloque B — Comportamiento (verificar en vivo antes/después)**
+
+6. ~~**Cerrar con cambios cuesta 3 pasos para el caso más común (guardar)**~~ ✅ 2026-08-26 — hecho junto con el ítem 1 (era la única forma de que Enter y Esc cayeran del lado seguro): `confirmDiscard()` con tres botones sirve a New, Open y Close por igual; Save adentro llama `runSaveFile()` (ya en la cola) y solo se procede si escribió. Con archivo untitled, Save abre "Save as" y cancelarlo equivale a Cancel.
+7. **Estado silencioso con pérdida posible: "cambió en disco y me quedé con lo mío"** — tras "Keep my changes" en ASK, `doc.mtime` se registra y el próximo `Mod+S` pisa el cambio externo sin aviso. Fix: `diskChanged: boolean` en `DocState` (set en la rama ASK rechazada; clear en `afterWrite`/`fromDisk`); `updateStatus` muestra `name (changed on disk)` con el mismo tratamiento que deleted; en `runSaveFile`, si `diskChanged`, `ask` "Overwrite the version on disk?" con "Overwrite" / "Cancel". NO hacer: merge, diff, "abrir ambos" — eso es IDE.
+8. **Panel de atajos sin gestión de foco** — `role=dialog` pero el foco nunca sale de CodeMirror (el SMOKE celebra que la selección no se colapsa: es el síntoma). `aria-modal="true"`; al abrir, guardar `activeElement` y mover foco a la ✕; al cerrar, `editor.focus()`; trap de Tab (un solo focuseable → `preventDefault`). NO hacer: librería de modales.
+9. **Sin feedback de carga entre `readFile` y `setText`** (50-100 MB en disco lento: la pantalla muestra el archivo ANTERIOR sin señal) — "Opening x…" en `#file-name` antes del `await`; `updateStatus()` lo pisa al terminar y en el catch. NO hacer: spinner, progreso, cancelación.
+
+**Pregunta abierta (decisión del autor, contradice §5.4):** chrome binario (One Dark / GitHub-light) para cuatro paletas — con Nord el editor es `#2e3440` y la barra `#21252b`; con Solarized Light, crema vs gris frío: "dos apps pegadas". Tres tokens por paleta (`chromeBg/Fg/Border` en `ThemePalette`, CSS vars en `applyTheme`, ~20 líneas). El revisor lo marca como su única discrepancia con una decisión tomada; §5.4 lo descartó a propósito. Sin acción hasta que el autor decida.
+
+**Riesgos que solo se ven corriendo (por importancia):** `Mod+/` y `Mod+Shift+/` con layout ES/Latam (`/` es Shift+7 — el accelerator nativo puede no resolverse igual en AppKit y GTK; es tu público); orden y default de botones en `ask` con labels; `Ctrl+=`/`Ctrl+-` vs zoom de webkit2gtk; `Alt+click` capturado por GNOME para mover ventanas; desborde de la status bar en ventanas angostas (`nowrap` sin `overflow`) con "Plain text (highlighting off, large file)" + "Windows-1252" + "CRLF (mixed)" + "Solarized Light" a la vez; visibilidad real del ● en Paper/Solarized; Tab con el panel de atajos abierto.
+
+## 12. Fase 5 — Distribución y alcance
 
 En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, descargas):
 
@@ -257,7 +280,7 @@ En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, de
 
 ---
 
-## 12. Reglas de decisión transversales
+## 13. Reglas de decisión transversales
 
 - **Robustez > features.** Un bug de pérdida de datos vale más que diez features nuevas.
 - **Presupuesto de complejidad:** cada dependencia nueva (npm o crate) se justifica por escrito en el PR. El proyecto se mantiene entendible por UNA persona en una tarde.

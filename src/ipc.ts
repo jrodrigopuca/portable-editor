@@ -71,9 +71,10 @@ export function clearRecovery(path: string): Promise<void> {
   return invoke<void>("clear_recovery", { path });
 }
 
-/** macOS only; rejects with an explanatory message elsewhere. */
-export function installCliCommand(): Promise<string> {
-  return invoke<string>("install_cli_command");
+/** macOS only; rejects with an explanatory message elsewhere. Resolves to
+ * `null` when the user cancelled the admin prompt (nothing to report). */
+export function installCliCommand(): Promise<string | null> {
+  return invoke<string | null>("install_cli_command");
 }
 
 /** Startup benchmarking hook (`scripts/bench-startup.sh`); no runtime effect. */

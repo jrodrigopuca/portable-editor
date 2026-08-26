@@ -50,20 +50,42 @@ body {
   flex: 1;
 }
 
+/* Clickable things get a permanent, quiet affordance (dotted underline)
+   instead of being indistinguishable from the read-only spans until hover.
+   Full opacity: at 12px the .8 that was here failed AA on light themes. */
 #statusbar button {
   font-family: inherit;
   font-size: inherit;
   color: inherit;
   background: transparent;
   border: none;
+  border-bottom: 1px dotted currentColor;
   padding: 0;
   cursor: pointer;
-  opacity: 0.8;
 }
 
-#statusbar button:hover {
-  opacity: 1;
-  text-decoration: underline;
+#statusbar button:hover,
+#statusbar select:hover {
+  border-bottom-style: solid;
+}
+
+/* Keyboard focus must be visible (WCAG 2.4.7); the old `outline: none`
+   on selects made Tab navigation blind. */
+#statusbar button:focus-visible,
+#statusbar select:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* The file name is the one thing read without searching: give it weight. */
+#file-name {
+  font-weight: 500;
+}
+
+/* Only shown when they're not the defaults — and then they're a warning. */
+#encoding,
+#eol {
+  font-weight: 500;
 }
 
 #statusbar .separator {
@@ -74,8 +96,17 @@ body {
 }
 
 #file-dirty {
-  color: #e5c07b;
   margin-left: -8px;
+}
+
+/* Per-theme: One Dark's yellow reads 8.9:1 on dark chrome but 1.6:1 on
+   light chrome, where it simply vanished. */
+body[data-dark="true"] #file-dirty {
+  color: #e5c07b;
+}
+
+body[data-dark="false"] #file-dirty {
+  color: #9a6700;
 }
 
 #statusbar select {
@@ -84,7 +115,7 @@ body {
   color: inherit;
   background: transparent;
   border: none;
-  outline: none;
+  border-bottom: 1px dotted currentColor;
   cursor: pointer;
 }
 
