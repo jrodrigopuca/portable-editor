@@ -13,6 +13,9 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] (Linux/GTK) Repetir los tres puntos anteriores: mismo orden de botones y mismo default
 - [ ] Botón "?" al final de la status bar abre el panel de atajos; tooltips de New/Open/Save muestran solo el atajo de esta plataforma (⌘N o Ctrl+N, no ambos)
 - [ ] Tab con el foco en un select de la status bar → se ve un outline de foco
+- [ ] Cambio externo con ediciones locales → "Keep my changes" → status bar muestra "(changed on disk)"; `Mod+S` pregunta "Overwrite it with yours?" (Cancel deja todo como está); tras Overwrite el label desaparece
+- [ ] Abrir el panel de atajos → el foco está en la ✕ (Tab no escribe en el editor); Esc cierra y el cursor vuelve al editor
+- [ ] Abrir `big-probe.txt` (o similar) → el nombre en la status bar dice "Opening big-probe.txt…" hasta que carga
 - [ ] `Mod+S` en archivo nuevo → abre "Save as", guarda, desaparece el ●
 - [ ] Tipear DURANTE un guardado (archivo grande ayuda) → el ● se mantiene; cerrar la ventana vuelve a preguntar. Ojo (macOS): probarlo fuera de `~/Downloads`/`~/Documents`/`~/Desktop` o con el bundle instalado — con `tauri dev` ahí TCC devuelve "Permission denied" que no es bug nuestro (trampa #57)
 - [ ] Editar → `Mod+S` → `Mod+W` inmediato (archivo grande) → NO pregunta "discard" mientras escribe; espera al guardado y cierra limpio

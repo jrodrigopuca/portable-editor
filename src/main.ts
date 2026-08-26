@@ -151,7 +151,11 @@ function fileLabel(): string {
 }
 
 function updateStatus(): void {
-  el.fileName.textContent = doc.missing ? `${fileLabel()} (deleted on disk)` : fileLabel();
+  el.fileName.textContent = doc.missing
+    ? `${fileLabel()} (deleted on disk)`
+    : doc.diskChanged
+      ? `${fileLabel()} (changed on disk)`
+      : fileLabel();
   el.fileName.title = doc.path ?? "";
   el.dirtyDot.hidden = !doc.dirty;
   // Encoding and EOL are shown only when they're NOT the defaults: "UTF-8"
@@ -422,6 +426,10 @@ async function runOpenFile(presetPath?: string, external = false): Promise<void>
   const path = presetPath ?? (await openDialog({ multiple: false, title: "Open file" }));
   if (typeof path !== "string") return;
 
+  // The only feedback between "I clicked Open" and "the file is on screen":
+  // for a 100 MB file on a slow disk that gap is seconds, during which the
+  // PREVIOUS file stays on screen. A string in the name slot is enough.
+  el.fileName.textContent = `Opening ${basename(path)}…`;
   try {
     const file = await ipc.readFile(path);
     if (file.likely_binary && !(await confirmOpenBinary(path))) return;
@@ -440,6 +448,8 @@ async function runOpenFile(presetPath?: string, external = false): Promise<void>
   } catch (err) {
     await message(readErrorMessage(err, path), { title: APP_NAME, kind: "error" });
     if (isGone(err)) forgetRecent(path);
+  } finally {
+    updateStatus(); // whatever happened, the name slot shows the truth again
   }
 }
 
@@ -482,9 +492,20 @@ async function runSaveFile(): Promise<boolean> {
   // was never real text to begin with (see confirmOpenBinary) — a reflexive
   // Mod+S with no edits must not re-encode and clobber it.
   if (!doc.dirty) return true;
+  if (doc.diskChanged && !(await confirmOverwriteDisk())) return false;
   const written = await writeTo(doc.path);
   if (written) updateStatus();
   return written;
+}
+
+/** The "(changed on disk)" state coming due: saving now overwrites an edit
+ * made elsewhere. Enter = overwrite is acceptable — they already chose to
+ * keep their version once, and the other edit is what a VCS is for. */
+async function confirmOverwriteDisk(): Promise<boolean> {
+  return ask(
+    `"${fileLabel()}" was changed on disk after you chose to keep your version. Overwrite it with yours?`,
+    { title: APP_NAME, kind: "warning", okLabel: "Overwrite", cancelLabel: "Cancel" },
+  );
 }
 
 /** Resolves true if the buffer was written to the chosen path. */
@@ -562,7 +583,17 @@ async function applyExternalChange(mtime: number): Promise<void> {
       return;
     case EXTERNAL_CHANGE.ASK:
       doc.mtime = mtime;
-      if (await confirmReloadDiscard()) await reloadFromDisk();
+      if (await confirmReloadDiscard()) {
+        await reloadFromDisk();
+      } else {
+        // "Keep my changes": from here on the buffer and the disk diverge.
+        // Not asking again is right (they answered); leaving it INVISIBLE
+        // wasn't — the next Save would silently overwrite someone else's
+        // edit. Same treatment as "(deleted on disk)": a status label, and
+        // a question at the moment it matters (runSaveFile).
+        doc.diskChanged = true;
+        updateStatus();
+      }
       return;
   }
 }
@@ -793,10 +824,14 @@ function renderShortcuts(): void {
 
 function openShortcuts(): void {
   el.shortcutsPanel.hidden = false;
+  // A dialog takes the focus: otherwise Tab keeps typing into CodeMirror
+  // behind the backdrop. The close button is the only focusable thing.
+  el.btnCloseShortcuts.focus();
 }
 
 function closeShortcuts(): void {
   el.shortcutsPanel.hidden = true;
+  editor.focus(); // and gives it back
 }
 
 /** Help → "Install 'portable-editor' Command" (macOS only; see lib.rs). */
@@ -814,10 +849,11 @@ async function installCliCommand(): Promise<void> {
 window.addEventListener(
   "keydown",
   (event) => {
-    if (event.key === "Escape" && !el.shortcutsPanel.hidden) {
+    if (!el.shortcutsPanel.hidden && (event.key === "Escape" || event.key === "Tab")) {
+      // Esc closes; Tab stays put (one focusable element = the trap).
       event.preventDefault();
       event.stopPropagation();
-      closeShortcuts();
+      if (event.key === "Escape") closeShortcuts();
       return;
     }
     if (event.altKey && event.code === "KeyZ") {

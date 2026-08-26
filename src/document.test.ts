@@ -40,6 +40,7 @@ describe("emptyDoc", () => {
     expect(doc.eol).toBe(EOL.LF);
     expect(doc.mixedEol).toBe(false);
     expect(doc.missing).toBe(false);
+    expect(doc.diskChanged).toBe(false);
     expect(doc.savedText).toBeNull();
     expect(doc.cursor).toEqual({ line: 1, col: 1 });
     expect(doc.gen).toBe(0);
@@ -93,7 +94,16 @@ describe("docFromFile", () => {
 describe("fromDisk", () => {
   it("only carries the disk-derived fields (identity and mtime stay with the caller)", () => {
     expect(Object.keys(fromDisk(file("x"), "x")).sort()).toEqual(
-      ["dirty", "mtime", "encoding", "eol", "indent", "mixedEol", "savedText"].sort(),
+      [
+        "dirty",
+        "mtime",
+        "encoding",
+        "eol",
+        "indent",
+        "mixedEol",
+        "savedText",
+        "diskChanged",
+      ].sort(),
     );
   });
 });
@@ -194,5 +204,9 @@ describe("afterWrite", () => {
     const next = afterWrite("x", "x");
     expect(next.encoding).toBe(ENCODING_UTF8);
     expect(next.mixedEol).toBe(false);
+  });
+
+  it("a save resolves a disk divergence: the disk is our version now", () => {
+    expect(afterWrite("x", "x").diskChanged).toBe(false);
   });
 });

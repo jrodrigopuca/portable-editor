@@ -42,6 +42,12 @@ export interface DocState {
   mixedEol: boolean;
   /** True once a poll finds `path` gone (deleted or renamed elsewhere). */
   missing: boolean;
+  /**
+   * True when the file changed on disk and the user chose to keep their
+   * unsaved buffer instead of reloading: the two now diverge, and the next
+   * Save would overwrite someone else's edit. Cleared by any read or write.
+   */
+  diskChanged: boolean;
   indent: IndentInfo;
   /**
    * Content as of the last save/load — the baseline an undo/redo is compared
@@ -66,7 +72,7 @@ export interface DocState {
 /** The fields that describe what's on disk, as opposed to the document's identity. */
 export type DocFileFields = Pick<
   DocState,
-  "dirty" | "mtime" | "encoding" | "eol" | "mixedEol" | "indent" | "savedText"
+  "dirty" | "mtime" | "encoding" | "eol" | "mixedEol" | "indent" | "savedText" | "diskChanged"
 >;
 
 /** A blank buffer. `path` is non-null for a CLI/"Open with..." target that doesn't exist on disk yet. */
@@ -79,6 +85,7 @@ export function emptyDoc(path: string | null): DocState {
     eol: EOL.LF,
     mixedEol: false,
     missing: false,
+    diskChanged: false,
     indent: detectIndent(""),
     savedText: null,
     cursor: { line: 1, col: 1 },
@@ -102,6 +109,7 @@ export function fromDisk(file: DecodedFile, contents: string): DocFileFields {
     mixedEol: file.mixed_eol,
     indent: detectIndent(contents),
     savedText: file.contents,
+    diskChanged: false, // we just read the disk: no divergence
   };
 }
 
@@ -118,12 +126,13 @@ export function fromDisk(file: DecodedFile, contents: string): DocFileFields {
 export function afterWrite(
   written: string,
   current: string,
-): Pick<DocState, "dirty" | "savedText" | "encoding" | "mixedEol"> {
+): Pick<DocState, "dirty" | "savedText" | "encoding" | "mixedEol" | "diskChanged"> {
   return {
     dirty: current !== written,
     savedText: written,
     encoding: ENCODING_UTF8,
     mixedEol: false,
+    diskChanged: false, // disk is now our version, by the user's choice
   };
 }
 

@@ -10,7 +10,7 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 | Robustez                 | 🟢     | Guardado atómico, cambios externos, encodings, EOL, archivos enormes y archivo borrado — todos ✔ (Fase 3 completa) |
 | Arquitectura             | 🟢     | Capas claras, IPC mínimo, módulos con responsabilidad única              |
 | Documentación            | 🟢     | README, ARCHITECTURE, RELEASE, CLAUDE.md — por encima de la media        |
-| Tests automatizados      | 🟡     | Lógica pura con Vitest (75 tests) y `cargo test` (60); sin E2E todavía (smoke test manual)   |
+| Tests automatizados      | 🟡     | Lógica pura con Vitest (76 tests) y `cargo test` (60); sin E2E todavía (smoke test manual)   |
 | CI de calidad            | 🟢     | Biome, tsc, Vitest, rustfmt y clippy en cada push/PR                     |
 | Lint/format              | 🟢     | Biome (frontend) + rustfmt/clippy (backend)                              |
 | Distribución             | 🟢     | Íconos propios ✔; release v0.1.0 publicado y firmado/notarizado (macOS arm64+x64, .deb, .rpm, .AppImage) |
@@ -260,9 +260,9 @@ Revisión del agente `ux-ui` desde código y CSS (sin correr la GUI; contrastes 
 **Bloque B — Comportamiento (verificar en vivo antes/después)**
 
 6. ~~**Cerrar con cambios cuesta 3 pasos para el caso más común (guardar)**~~ ✅ 2026-08-26 — hecho junto con el ítem 1 (era la única forma de que Enter y Esc cayeran del lado seguro): `confirmDiscard()` con tres botones sirve a New, Open y Close por igual; Save adentro llama `runSaveFile()` (ya en la cola) y solo se procede si escribió. Con archivo untitled, Save abre "Save as" y cancelarlo equivale a Cancel.
-7. **Estado silencioso con pérdida posible: "cambió en disco y me quedé con lo mío"** — tras "Keep my changes" en ASK, `doc.mtime` se registra y el próximo `Mod+S` pisa el cambio externo sin aviso. Fix: `diskChanged: boolean` en `DocState` (set en la rama ASK rechazada; clear en `afterWrite`/`fromDisk`); `updateStatus` muestra `name (changed on disk)` con el mismo tratamiento que deleted; en `runSaveFile`, si `diskChanged`, `ask` "Overwrite the version on disk?" con "Overwrite" / "Cancel". NO hacer: merge, diff, "abrir ambos" — eso es IDE.
-8. **Panel de atajos sin gestión de foco** — `role=dialog` pero el foco nunca sale de CodeMirror (el SMOKE celebra que la selección no se colapsa: es el síntoma). `aria-modal="true"`; al abrir, guardar `activeElement` y mover foco a la ✕; al cerrar, `editor.focus()`; trap de Tab (un solo focuseable → `preventDefault`). NO hacer: librería de modales.
-9. **Sin feedback de carga entre `readFile` y `setText`** (50-100 MB en disco lento: la pantalla muestra el archivo ANTERIOR sin señal) — "Opening x…" en `#file-name` antes del `await`; `updateStatus()` lo pisa al terminar y en el catch. NO hacer: spinner, progreso, cancelación.
+7. ~~**Estado silencioso con pérdida posible: "cambió en disco y me quedé con lo mío"**~~ ✅ 2026-08-26 — `diskChanged` en `DocState` (limpiado por `fromDisk` y `afterWrite`); set en la rama ASK rechazada; `updateStatus` muestra "(changed on disk)"; `runSaveFile` pregunta `confirmOverwriteDisk` ("Overwrite" / "Cancel"). Test en `document.test.ts`. Trampa #63.
+8. ~~**Panel de atajos sin gestión de foco**~~ ✅ 2026-08-26 — `aria-modal`, foco a la ✕ al abrir, Tab atrapado, `editor.focus()` al cerrar. Trampa #64.
+9. ~~**Sin feedback de carga entre `readFile` y `setText` (50-100 MB en disco lento: la pantalla muestra el archivo ANTERIOR sin señal)**~~ ✅ 2026-08-26 — `el.fileName` = "Opening x…" antes del `readFile`; `finally { updateStatus() }` restaura en todo camino. Trampa #64.
 
 **Pregunta abierta (decisión del autor, contradice §5.4):** chrome binario (One Dark / GitHub-light) para cuatro paletas — con Nord el editor es `#2e3440` y la barra `#21252b`; con Solarized Light, crema vs gris frío: "dos apps pegadas". Tres tokens por paleta (`chromeBg/Fg/Border` en `ThemePalette`, CSS vars en `applyTheme`, ~20 líneas). El revisor lo marca como su única discrepancia con una decisión tomada; §5.4 lo descartó a propósito. Sin acción hasta que el autor decida.
 

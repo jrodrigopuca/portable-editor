@@ -7,6 +7,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 ### Agregado
 
+- Al elegir "Keep my changes" ante un cambio externo, la status bar muestra "(changed on disk)" y guardar pregunta antes de sobrescribir la versión del disco — antes el siguiente guardado la pisaba en silencio (ver ROADMAP.md sección 11, ítem 7).
+- El panel de atajos toma el foco al abrirse (Tab ya no escribe en el editor detrás) y lo devuelve al cerrar (ver ROADMAP.md sección 11, ítem 8).
+- Mientras se lee un archivo grande, la status bar muestra "Opening …" en vez de dejar el archivo anterior en pantalla sin aviso (ver ROADMAP.md sección 11, ítem 9).
 - Al cerrar, crear o abrir con cambios sin guardar, el diálogo es **Save / Don't Save / Cancel** (Enter guarda, Esc cancela) — antes era Yes/No, y guardar al cerrar costaba tres pasos (ver ROADMAP.md sección 11, ítems 1 y 6).
 - El aviso de recuperación tras un cierre abrupto tiene tres opciones: usar lo recuperado (Enter), decidir después (Esc — el snapshot se conserva) o borrarlo; antes Esc lo borraba para siempre (ver ROADMAP.md sección 11, ítem 1).
 - Los demás diálogos tienen botones con verbo ("Reload from disk" / "Keep my changes", "Open anyway" / "Cancel", …) en vez de Yes/No, y el de recarga nombra el archivo (ver ROADMAP.md sección 11, ítem 1).
