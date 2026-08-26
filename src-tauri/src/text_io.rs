@@ -3,16 +3,9 @@ use serde::Serialize;
 
 /// Above this, `read_file` refuses to load the file at all — checked against
 /// file metadata before reading, so an oversized file never reaches memory
-/// or the webview. See docs/ROADMAP.md Fase 3.
+/// or the webview. See docs/ROADMAP.md Fase 3. Reported as
+/// `IoError::TooLarge { size, limit }`; the "N MB" wording is the frontend's.
 pub const MAX_FILE_SIZE_BYTES: u64 = 100 * 1024 * 1024;
-
-pub fn size_limit_error(path: &str, size_bytes: u64) -> String {
-    let mb = size_bytes as f64 / (1024.0 * 1024.0);
-    let limit_mb = MAX_FILE_SIZE_BYTES / (1024 * 1024);
-    format!(
-        "{path} is {mb:.0} MB, larger than portable-editor's {limit_mb} MB limit. Open it with a different tool."
-    )
-}
 
 /// Decoded file contents plus the metadata needed to round-trip it: the
 /// encoding it was read in (display-only, save always writes UTF-8), the
@@ -44,14 +37,25 @@ pub fn decode_file(bytes: &[u8]) -> DecodedFile {
 /// present" — that used to mean a single Windows-pasted line in an
 /// otherwise-LF file flipped the WHOLE file to CRLF on save, rewriting every
 /// other line's ending for a diff that should have touched one line.
-/// `mixed_eol` flags when both styles are actually present, regardless of
-/// which one wins the vote, so the caller can surface it instead of quietly
+/// `mixed_eol` flags when more than one style is actually present, regardless
+/// of which one wins the vote, so the caller can surface it instead of quietly
 /// picking one. A tie (equal counts, including the empty-file 0-0 case)
 /// resolves to LF.
+///
+/// Lone `\r` (classic Mac) is a third style that `normalize_to_lf` folds into
+/// `\n` and that we never write back (save policy is LF or CRLF only). It
+/// still counts: a file with CR-only lines next to LF/CRLF ones is `mixed`,
+/// and a pure CR-only file reports LF + `mixed` — the status bar's "(mixed)"
+/// is the honest signal that saving WILL rewrite its endings.
 fn detect_eol(text: &str) -> (&'static str, bool) {
     let crlf_count = text.matches("\r\n").count();
     let lf_only_count = text.matches('\n').count() - crlf_count;
-    let mixed = crlf_count > 0 && lf_only_count > 0;
+    let cr_only_count = text.matches('\r').count() - crlf_count;
+    let styles_present = [crlf_count, lf_only_count, cr_only_count]
+        .iter()
+        .filter(|&&n| n > 0)
+        .count();
+    let mixed = styles_present > 1 || cr_only_count > 0;
     let eol = if crlf_count > lf_only_count {
         "CRLF"
     } else {
@@ -197,6 +201,32 @@ mod tests {
     }
 
     #[test]
+    fn cr_only_file_reports_lf_and_flags_mixed() {
+        // Classic Mac endings are normalized to LF and never written back
+        // (save policy is LF/CRLF only), so `mixed` is the only warning the
+        // user gets that saving rewrites every line ending.
+        let decoded = decode_file("line1\rline2\r".as_bytes());
+        assert_eq!(decoded.contents, "line1\nline2\n");
+        assert_eq!(decoded.eol, "LF");
+        assert!(decoded.mixed_eol);
+    }
+
+    #[test]
+    fn cr_mixed_with_lf_flags_mixed_and_keeps_lf() {
+        let decoded = decode_file("line1\nline2\rline3\n".as_bytes());
+        assert_eq!(decoded.contents, "line1\nline2\nline3\n");
+        assert_eq!(decoded.eol, "LF");
+        assert!(decoded.mixed_eol);
+    }
+
+    #[test]
+    fn cr_mixed_with_crlf_flags_mixed_and_keeps_crlf() {
+        let decoded = decode_file("line1\r\nline2\rline3\r\n".as_bytes());
+        assert_eq!(decoded.eol, "CRLF");
+        assert!(decoded.mixed_eol);
+    }
+
+    #[test]
     fn plain_text_is_not_likely_binary() {
         let decoded = decode_file("hello\nworld\n".as_bytes());
         assert!(!decoded.likely_binary);
@@ -209,13 +239,5 @@ mod tests {
         let bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00];
         let decoded = decode_file(&bytes);
         assert!(decoded.likely_binary);
-    }
-
-    #[test]
-    fn size_limit_error_mentions_path_and_both_sizes() {
-        let msg = size_limit_error("/tmp/huge.log", 150 * 1024 * 1024);
-        assert!(msg.contains("/tmp/huge.log"));
-        assert!(msg.contains("150 MB"));
-        assert!(msg.contains("100 MB"));
     }
 }

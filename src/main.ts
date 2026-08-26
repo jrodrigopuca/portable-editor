@@ -15,6 +15,7 @@ import {
 } from "./document";
 import { createEditor, PLAIN_TEXT_LABEL } from "./editor";
 import { indentLabel, indentUnitString, nextIndentPreset } from "./indent";
+import { errorMessage, IO_OPERATION } from "./io-error";
 import * as ipc from "./ipc";
 import { isMenuAction, MENU_ACTION, type StartupTarget } from "./ipc";
 import { basename } from "./paths";
@@ -352,7 +353,7 @@ async function openFile(presetPath?: string, external = false): Promise<void> {
     await afterFileLoaded(path);
     editor.focus();
   } catch (err) {
-    await message(String(err), { title: APP_NAME, kind: "error" });
+    await message(errorMessage(err, path, IO_OPERATION.READ), { title: APP_NAME, kind: "error" });
     forgetRecent(path);
   }
 }
@@ -370,7 +371,10 @@ async function restoreSession(): Promise<void> {
     await afterFileLoaded(last.path);
     editor.setCursor(last.line, last.col);
   } catch (err) {
-    await message(String(err), { title: APP_NAME, kind: "error" });
+    await message(errorMessage(err, last.path, IO_OPERATION.READ), {
+      title: APP_NAME,
+      kind: "error",
+    });
     forgetRecent(last.path);
   }
 }
@@ -416,7 +420,7 @@ async function writeTo(path: string): Promise<boolean> {
     void clearRecovery(path);
     return true;
   } catch (err) {
-    await message(String(err), { title: APP_NAME, kind: "error" });
+    await message(errorMessage(err, path, IO_OPERATION.SAVE), { title: APP_NAME, kind: "error" });
     return false;
   }
 }
@@ -463,8 +467,8 @@ async function reloadFromDisk(): Promise<void> {
   // was already true going in, so this is a no-op for that path.
   if (!dirtyBeforeRead && doc.dirty && !(await confirmReloadDiscard())) return;
   if (isStale(gen)) return; // the dialog above is a second gap
-  // replaceText() fires onDocChanged (a plain edit → dirty), so the disk
-  // fields go in AFTER it: same identity, fresh contents, clean.
+  // replaceText() is tagged as a reload, so onDocChanged stays quiet and the
+  // dirty flag is decided only here: same identity, fresh contents, clean.
   editor.replaceText(file.contents);
   Object.assign(doc, fromDisk(file, file.contents));
   applyIndent();

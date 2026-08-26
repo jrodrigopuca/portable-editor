@@ -4,9 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
 mod fs_ops;
+mod io_error;
 mod recovery;
 mod startup;
 mod text_io;
+use io_error::IoError;
 use startup::{resolve_open_arg, PendingFile, StartupTarget};
 use text_io::DecodedFile;
 
@@ -15,13 +17,20 @@ use text_io::DecodedFile;
 ///
 /// Checks size via metadata before reading: an oversized file is rejected
 /// without ever being loaded into memory, so it can't hang the webview.
+///
+/// `async` (here and in the other IO commands) so Tauri runs it on its async
+/// runtime instead of the main thread: a sync command blocks the UI thread
+/// for the whole read — up to 100 MB — and every `save_recovery` tick.
 #[tauri::command]
-fn read_file(path: String) -> Result<DecodedFile, String> {
-    let meta = std::fs::metadata(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
+async fn read_file(path: String) -> Result<DecodedFile, IoError> {
+    let meta = std::fs::metadata(&path)?;
     if meta.len() > text_io::MAX_FILE_SIZE_BYTES {
-        return Err(text_io::size_limit_error(&path, meta.len()));
+        return Err(IoError::TooLarge {
+            size: meta.len(),
+            limit: text_io::MAX_FILE_SIZE_BYTES,
+        });
     }
-    let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
+    let bytes = std::fs::read(&path)?;
     Ok(text_io::decode_file(&bytes))
 }
 
@@ -31,20 +40,15 @@ fn read_file(path: String) -> Result<DecodedFile, String> {
 /// Returns the saved file's mtime (ms) so the frontend can record it in the
 /// same tick as `doc.dirty = false`.
 #[tauri::command]
-fn write_file(path: String, contents: String, eol: String) -> Result<u64, String> {
+async fn write_file(path: String, contents: String, eol: String) -> Result<u64, IoError> {
     let bytes = text_io::encode_with_eol(&contents, &eol);
-    fs_ops::write_atomic(Path::new(&path), &bytes)
-        .map_err(|e| format!("Could not save {path}: {e}"))
+    Ok(fs_ops::write_atomic(Path::new(&path), &bytes)?)
 }
 
-fn recovery_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+fn recovery_dir(app: &tauri::AppHandle) -> Result<PathBuf, IoError> {
     use tauri::Manager;
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("recovery");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dir = app.path().app_data_dir()?.join("recovery");
+    std::fs::create_dir_all(&dir)?;
     // Snapshots of ANY dirty buffer land here — including a 0600 secrets
     // file the user happened to edit — outside that file's own directory,
     // so the directory has to be the user's alone. Applied on every call:
@@ -58,7 +62,11 @@ fn recovery_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// Not atomic like `write_file`: losing a recovery write mid-crash just means
 /// recovering an older snapshot next time, not corrupting anything real.
 #[tauri::command]
-fn save_recovery(app: tauri::AppHandle, path: String, contents: String) -> Result<(), String> {
+async fn save_recovery(
+    app: tauri::AppHandle,
+    path: String,
+    contents: String,
+) -> Result<(), IoError> {
     let dir = recovery_dir(&app)?;
     // 0600 from creation, for the same reason recovery_dir() is 0700.
     std::fs::OpenOptions::new()
@@ -67,18 +75,46 @@ fn save_recovery(app: tauri::AppHandle, path: String, contents: String) -> Resul
         .truncate(true)
         .mode(0o600)
         .open(dir.join(recovery::recovery_key(&path)))
-        .and_then(|mut f| f.write_all(contents.as_bytes()))
-        .map_err(|e| e.to_string())
+        .and_then(|mut f| f.write_all(contents.as_bytes()))?;
+    Ok(())
 }
 
 /// The recovered contents for `path`, if a recovery file exists for it.
 #[tauri::command]
-fn read_recovery(app: tauri::AppHandle, path: String) -> Result<Option<String>, String> {
+async fn read_recovery(app: tauri::AppHandle, path: String) -> Result<Option<String>, IoError> {
     let dir = recovery_dir(&app)?;
     match std::fs::read_to_string(dir.join(recovery::recovery_key(&path))) {
         Ok(contents) => Ok(Some(contents)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Best-effort sweep of snapshots older than `RECOVERY_MAX_AGE_DAYS`, run
+/// once at startup. A snapshot whose original was deleted or renamed is never
+/// cleared through `clear_recovery`, so this is the only thing that stops
+/// `recovery/` growing forever. Every error is ignored: a failed sweep costs
+/// disk space, a failed startup costs the user their editor. Only regular
+/// files are touched (never follows a symlink into deleting something else).
+fn sweep_stale_recovery(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        if meta
+            .modified()
+            .map(|modified| recovery::is_stale(modified, now))
+            .unwrap_or(false)
+        {
+            let _ = std::fs::remove_file(entry.path());
+        }
     }
 }
 
@@ -86,7 +122,7 @@ fn read_recovery(app: tauri::AppHandle, path: String) -> Result<Option<String>, 
 /// or when the user explicitly discards unsaved changes. Best-effort: a
 /// leftover recovery file just means a stale prompt next time, not data loss.
 #[tauri::command]
-fn clear_recovery(app: tauri::AppHandle, path: String) -> Result<(), String> {
+fn clear_recovery(app: tauri::AppHandle, path: String) -> Result<(), IoError> {
     let dir = recovery_dir(&app)?;
     let _ = std::fs::remove_file(dir.join(recovery::recovery_key(&path)));
     Ok(())
@@ -109,8 +145,8 @@ fn signal_ready() {
 
 /// Mtime in milliseconds; the frontend polls it to detect external changes.
 #[tauri::command]
-fn file_mtime(path: String) -> Result<u64, String> {
-    fs_ops::mtime_ms(Path::new(&path)).map_err(|e| e.to_string())
+fn file_mtime(path: String) -> Result<u64, IoError> {
+    Ok(fs_ops::mtime_ms(Path::new(&path))?)
 }
 
 /// Builds the File menu (New/Open/Save/Save As), a macOS-only Edit menu
@@ -260,9 +296,12 @@ fn startup_file(pending: tauri::State<PendingFile>) -> Option<StartupTarget> {
     if let Some(target) = stashed {
         return Some(target);
     }
-    let arg = std::env::args().nth(1)?;
+    // `args_os`, not `args`: argv is raw bytes on Linux and `args()` panics
+    // on a non-UTF-8 entry (trampa: a file named in Latin-1 would crash the
+    // app at startup instead of opening).
+    let arg = std::env::args_os().nth(1)?;
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    resolve_open_arg(&cwd, &arg)
+    resolve_open_arg(&cwd, Path::new(&arg))
 }
 
 #[cfg(target_os = "macos")]
@@ -302,11 +341,14 @@ fn install_cli_command() -> Result<String, String> {
         // app moved/updated) — not a permissions problem. If it's our own
         // old symlink, replacing it needs no more privilege than creating it
         // did, so do that instead of prompting for admin on every reinstall.
-        // Anything else at CLI_TARGET (a real file, e.g. from some other
-        // program) is left alone and falls through to the admin path below,
-        // same as before.
-        let is_stale_symlink = std::fs::symlink_metadata(CLI_TARGET)
-            .map(|m| m.file_type().is_symlink())
+        // "Ours" = a symlink whose target has the same file name as the
+        // executable we'd link to (the old bundle may live elsewhere, e.g.
+        // ~/Applications vs /Applications, so the full path can't be
+        // compared). Anything else at CLI_TARGET (a real file, or a symlink
+        // some other program owns) is left alone and falls through to the
+        // admin path below, same as before.
+        let is_stale_symlink = std::fs::read_link(CLI_TARGET)
+            .map(|target| target.file_name() == exe.file_name())
             .unwrap_or(false);
         if is_stale_symlink
             && std::fs::remove_file(CLI_TARGET).is_ok()
@@ -349,7 +391,7 @@ pub fn run() {
                 let _ = window.set_focus();
             }
             if let Some(arg) = args.into_iter().nth(1) {
-                if let Some(target) = resolve_open_arg(Path::new(&cwd), &arg) {
+                if let Some(target) = resolve_open_arg(Path::new(&cwd), Path::new(&arg)) {
                     let _ = app.emit("open-file", target);
                 }
             }
@@ -358,6 +400,11 @@ pub fn run() {
         .manage(PendingFile::new())
         .setup(|app| {
             build_menu(app)?;
+            // GC of orphaned snapshots (ROADMAP §8 item 22). Errors ignored:
+            // never let housekeeping stop the app from starting.
+            if let Ok(dir) = recovery_dir(app.handle()) {
+                sweep_stale_recovery(&dir);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

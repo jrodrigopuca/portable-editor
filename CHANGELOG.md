@@ -15,7 +15,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 - `Mod+S` sin cambios sin guardar ya no reescribe el archivo. Antes, guardar sin haber editado nada re-encodeaba el contenido igual — inofensivo para texto normal, pero corrompía un archivo binario abierto por error (ver ROADMAP.md sección 7, ítem 1).
 - Un archivo con una sola línea de fin CRLF colada entre líneas LF (típico de pegar un snippet de Windows) ya no convierte el archivo entero a CRLF al guardar. La detección de EOL ahora es por mayoría de línea, no por "¿aparece CRLF en algún lado?" (ver ROADMAP.md sección 7, ítem 2).
-- Dos aperturas de archivo por CLI casi simultáneas (`portable-editor a.txt` seguido de `portable-editor b.txt` en rápida sucesión) ya no corren sus diálogos de confirmación en paralelo — se procesan en orden, uno a la vez (ver ROADMAP.md sección 7, ítem 3).
+- Dos aperturas de archivo por CLI casi simultáneas (`portable-editor a.txt` seguido de `portable-editor b.txt` en rápida sucesión) ya no corren sus diálogos de confirmación en paralelo — se procesan en orden, uno a la vez (ver ROADMAP.md sección 7, ítem 4).
 - La clave del archivo de recovery ya no depende de `DefaultHasher` (Rust no garantiza su algoritmo estable entre versiones del compilador) — ahora usa FNV-1a, determinístico para siempre. Nota: un recovery ya pendiente en disco de una versión anterior a este cambio queda huérfano una única vez al actualizar (ver ROADMAP.md sección 7, ítem 5).
 - Tipear justo mientras el editor recarga un archivo modificado externamente (ventana muy angosta, entre el chequeo de mtime y la lectura del contenido) ya no se pierde en silencio — si eso pasa, ahora pregunta antes de sobreescribir, igual que el resto de los conflictos de recarga (ver ROADMAP.md sección 7, ítem 6).
 - El punto de "sin guardar" (●) ahora se limpia solo si deshacés (`Mod+Z`) hasta volver exactamente al contenido que ya está guardado en disco — antes se quedaba marcando "sin guardar" aunque el contenido fuera idéntico byte a byte (ver ROADMAP.md sección 7, ítem 7).
@@ -41,6 +41,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 - Content Security Policy activa en el webview (antes `null`): bloquea scripts inline o remotos que una dependencia comprometida pudiera inyectar (ver ROADMAP.md sección 8, ítem 9).
 - Guardar ya no puede disparar, en una ventana de milisegundos, una recarga del propio archivo recién guardado (que dejaba una entrada fantasma en el historial de deshacer) (ver ROADMAP.md sección 8, ítem 12).
+- Abrir o guardar un archivo muy grande, o el autosave cada 10 s, ya no congela la ventana mientras dura la operación de disco (ver ROADMAP.md sección 8, ítem 16).
+- (Linux) Un archivo cuyo nombre no es UTF-8 válido (por ejemplo Latin-1 heredado) ya no hace crashear la app al arrancar con él como argumento (ver ROADMAP.md sección 8, ítem 17).
+- Un archivo con fines de línea `\r` sueltos (Mac clásico) ahora muestra "(mixed)" en la status bar: al guardar se convierte a LF, y antes esa conversión era silenciosa (ver ROADMAP.md sección 8, ítem 18).
+- (macOS) Help → "Install 'portable-editor' Command" ya no borra en silencio un symlink de OTRO programa que ocupe `/usr/local/bin/portable-editor`; en ese caso pide confirmación con contraseña como siempre (ver ROADMAP.md sección 8, ítem 20).
+- Los snapshots de recovery de archivos que ya no existen se limpian solos a los 30 días, en vez de acumularse para siempre (ver ROADMAP.md sección 8, ítem 22).
+- Los errores al abrir o guardar distinguen "no existe", "sin permiso" y "demasiado grande" con mensajes propios (ver ROADMAP.md sección 8, ítem 15).
 - El fallback de tema corrupto en `localStorage` ahora usa `DEFAULT_THEME_ID` en vez de la primera entrada de la lista de temas — mismo resultado hoy, pero ya no depende del orden de esa lista (ver ROADMAP.md sección 7, ítem 14).
 - `detectIndent()` ya no escanea archivos grandes línea por línea sin límite — por encima de 10 MB asume la indentación por defecto en vez de potencialmente demorar la apertura (ver ROADMAP.md sección 7, ítem 15).
 - Reabrir la sesión anterior con el último archivo ya borrado o sin permisos ahora muestra un diálogo de error explicando qué pasó, en vez de un "untitled" vacío sin ninguna pista (ver ROADMAP.md sección 7, ítem 3).

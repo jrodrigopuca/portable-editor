@@ -53,7 +53,12 @@ impl Default for PendingFile {
 /// used to be silently swallowed here) for a file that doesn't exist yet —
 /// the normal "create a new file at this path" flow every terminal editor
 /// supports — so this falls back to `std::path::absolute` in that case.
-pub fn resolve_open_arg(base_dir: &Path, arg: &str) -> Option<StartupTarget> {
+///
+/// `arg` is a `Path`, not a `&str`: argv on Linux is arbitrary bytes, and
+/// `std::env::args()` panics on a non-UTF-8 entry. Callers use `args_os()`
+/// and keep the raw bytes all the way here; only the RESULT is made lossy
+/// (`to_string_lossy`), because it has to travel as JSON.
+pub fn resolve_open_arg(base_dir: &Path, arg: &Path) -> Option<StartupTarget> {
     let candidate = base_dir.join(arg);
     if let Ok(canon) = candidate.canonicalize() {
         return Some(StartupTarget {
@@ -128,7 +133,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             std::fs::write(dir.path().join("a.txt"), b"").unwrap();
 
-            let target = resolve_open_arg(dir.path(), "a.txt").unwrap();
+            let target = resolve_open_arg(dir.path(), Path::new("a.txt")).unwrap();
 
             assert!(target.exists);
             assert_eq!(target.extra_ignored, 0);
@@ -143,7 +148,7 @@ mod tests {
             let file = other.path().join("b.txt");
             std::fs::write(&file, b"").unwrap();
 
-            let target = resolve_open_arg(dir.path(), file.to_str().unwrap()).unwrap();
+            let target = resolve_open_arg(dir.path(), &file).unwrap();
 
             assert!(target.exists);
             assert_eq!(Path::new(&target.path), file.canonicalize().unwrap());
@@ -155,7 +160,7 @@ mod tests {
             std::fs::create_dir(dir.path().join("sub")).unwrap();
             std::fs::write(dir.path().join("c.txt"), b"").unwrap();
 
-            let target = resolve_open_arg(dir.path(), "sub/../c.txt").unwrap();
+            let target = resolve_open_arg(dir.path(), Path::new("sub/../c.txt")).unwrap();
 
             assert!(target.exists);
             assert_eq!(
@@ -168,7 +173,7 @@ mod tests {
         fn nonexistent_relative_path_is_absolute_under_base_dir() {
             let dir = tempfile::tempdir().unwrap();
 
-            let target = resolve_open_arg(dir.path(), "new-notes.md").unwrap();
+            let target = resolve_open_arg(dir.path(), Path::new("new-notes.md")).unwrap();
 
             assert!(!target.exists);
             assert_eq!(target.extra_ignored, 0);
@@ -181,8 +186,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let wanted = dir.path().join("nope").join("x.txt");
 
-            let target =
-                resolve_open_arg(Path::new("/unrelated"), wanted.to_str().unwrap()).unwrap();
+            let target = resolve_open_arg(Path::new("/unrelated"), &wanted).unwrap();
 
             assert!(!target.exists);
             assert_eq!(Path::new(&target.path), wanted);
@@ -194,10 +198,27 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             std::fs::write(dir.path().join("-notes.txt"), b"").unwrap();
 
-            let target = resolve_open_arg(dir.path(), "-notes.txt").unwrap();
+            let target = resolve_open_arg(dir.path(), Path::new("-notes.txt")).unwrap();
 
             assert!(target.exists);
             assert!(target.path.ends_with("-notes.txt"));
+        }
+
+        #[test]
+        fn non_utf8_filename_is_resolved_lossily_instead_of_panicking() {
+            // Linux argv is bytes; `std::env::args()` would panic on this.
+            // Not created on disk: APFS refuses non-UTF-8 names, so the
+            // nonexistent branch (`std::path::absolute`, no fs access) is
+            // the one that runs on both platforms.
+            use std::ffi::OsStr;
+            use std::os::unix::ffi::OsStrExt;
+            let dir = tempfile::tempdir().unwrap();
+            let name = OsStr::from_bytes(b"caf\xe9.txt");
+
+            let target = resolve_open_arg(dir.path(), Path::new(name)).unwrap();
+
+            assert!(!target.exists);
+            assert!(target.path.ends_with("caf\u{FFFD}.txt"));
         }
     }
 

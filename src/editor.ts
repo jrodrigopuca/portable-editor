@@ -29,6 +29,14 @@ export interface EditorHandle {
 
 export const PLAIN_TEXT_LABEL = "Plain text";
 
+/**
+ * `Transaction.userEvent` tag for `replaceText`: the buffer changed, but the
+ * change IS the disk, so the update listener must not report it as an edit.
+ * Checked with `isUserEvent`, which matches by dot-separated prefix — no core
+ * event starts with "reload", so this can't collide with "input"/"delete"/etc.
+ */
+const RELOAD_USER_EVENT = "reload";
+
 // Single font family and size controlled via CSS variables (see styles.css)
 const baseTheme = EditorView.theme({
   "&": { height: "100%", fontSize: "var(--editor-font-size, 14px)" },
@@ -55,7 +63,11 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks): E
     wrapConfig.of(currentWrap ? EditorView.lineWrapping : []),
     indentConfig.of(indentUnit.of(currentIndentUnit)),
     EditorView.updateListener.of((update) => {
-      if (update.docChanged) {
+      // A reload is a programmatic swap to what's on disk, not an edit: the
+      // caller resets the document's disk fields itself, so reporting it
+      // here would only flip dirty on for it to be flipped back off.
+      const isReload = update.transactions.every((tr) => tr.isUserEvent(RELOAD_USER_EVENT));
+      if (update.docChanged && !isReload) {
         const isHistoryTraversal = update.transactions.some(
           (tr) => tr.isUserEvent("undo") || tr.isUserEvent("redo"),
         );
@@ -90,12 +102,14 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks): E
 
     replaceText: (text) => {
       // Unlike setText, keeps cursor and undo history: meant for reloading
-      // the same file after it changed on disk
+      // the same file after it changed on disk. Tagged so the update
+      // listener doesn't treat it as a user edit (see RELOAD_USER_EVENT).
       const head = view.state.selection.main.head;
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: text },
         selection: { anchor: Math.min(head, text.length) },
         scrollIntoView: true,
+        userEvent: RELOAD_USER_EVENT,
       });
     },
 

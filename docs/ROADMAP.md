@@ -10,7 +10,7 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 | Robustez                 | 🟢     | Guardado atómico, cambios externos, encodings, EOL, archivos enormes y archivo borrado — todos ✔ (Fase 3 completa) |
 | Arquitectura             | 🟢     | Capas claras, IPC mínimo, módulos con responsabilidad única              |
 | Documentación            | 🟢     | README, ARCHITECTURE, RELEASE, CLAUDE.md — por encima de la media        |
-| Tests automatizados      | 🟡     | Lógica pura con Vitest (22 tests); sin E2E todavía (smoke test manual)   |
+| Tests automatizados      | 🟡     | Lógica pura con Vitest (63 tests) y `cargo test` (51); sin E2E todavía (smoke test manual)   |
 | CI de calidad            | 🟢     | Biome, tsc, Vitest, rustfmt y clippy en cada push/PR                     |
 | Lint/format              | 🟢     | Biome (frontend) + rustfmt/clippy (backend)                              |
 | Distribución             | 🟢     | Íconos propios ✔; release v0.1.0 publicado y firmado/notarizado (macOS arm64+x64, .deb, .rpm, .AppImage) |
@@ -125,7 +125,7 @@ Revisión del agente `qa` sobre flujos de archivo, encoding/EOL, sincronización
 
 **Crítico**
 
-1. ~~**Abrir un archivo binario (PNG/PDF/ejecutable) y guardarlo lo corrompe, incluso sin editar nada**~~ ✅ 2026-08-25 — doble fix: (a) `saveFile()` (`main.ts`) ahora no escribe si `doc.dirty` es `false`, cierra el caso más común (reflejo de `Mod+S` sin haber editado nada); (b) `read_file` agrega `likely_binary` (heurística de git: byte NUL en los primeros 8000 bytes — el fallback a Windows-1252 nunca falla al decodificar, así que es la única señal disponible), y `openFile()` pregunta antes de cargar un archivo que da positivo. `restoreSession()` queda afuera de (b) a propósito (mismo criterio que sus otros guards), cubierta igual por (a). Documentado en `ARCHITECTURE.md` trampa #22 y `CLAUDE.md` invariante #9. Tests nuevos en `text_io.rs` (`nul_byte_marks_content_as_likely_binary`, `plain_text_is_not_likely_binary`).
+1. ~~**Abrir un archivo binario (PNG/PDF/ejecutable) y guardarlo lo corrompe, incluso sin editar nada**~~ ✅ 2026-08-25 — doble fix: (a) `saveFile()` (`main.ts`) ahora no escribe si `doc.dirty` es `false`, cierra el caso más común (reflejo de `Mod+S` sin haber editado nada); (b) `read_file` agrega `likely_binary` (heurística de git: byte NUL en los primeros 8000 bytes — el fallback a Windows-1252 nunca falla al decodificar, así que es la única señal disponible), y `openFile()` pregunta antes de cargar un archivo que da positivo. `restoreSession()` queda afuera de (b) a propósito (mismo criterio que sus otros guards), cubierta igual por (a). Documentado en `ARCHITECTURE.md` trampas #9 y #36 y `CLAUDE.md` invariante #9. Tests nuevos en `text_io.rs` (`nul_byte_marks_content_as_likely_binary`, `plain_text_is_not_likely_binary`).
 
 **Medio-alto**
 
@@ -181,14 +181,14 @@ Cada ítem se tacha (`~~...~~ ✅ fecha`) al resolverse, con la trampa/test que 
 
 **Bloque D — Fricción menor (cuando se pase por ahí)**
 
-15. **Errores tipados en IPC** — todos los comandos devuelven `Result<_, String>`; "no existe" vs "sin permiso" vs "muy grande" son indistinguibles sin `includes(...)`. `enum IoError { NotFound, PermissionDenied, TooLarge { size, limit }, Other(String) }` serializable; el formateo de `size_limit_error` (presentación) sale de `text_io.rs` y va al frontend, donde ya viven los strings de UI.
-16. **Comandos IO síncronos bloquean el main thread** — `read_file` de 100 MB, `write_file`, `save_recovery` cada 10 s. `async fn` en los tres.
-17. **`std::env::args()` hace panic con argv no-UTF-8 (Linux)** — `args_os()` + `&OsStr` en `resolve_open_arg`; mismo patrón lossy en los `to_string_lossy()` de paths.
-18. **Lone `\r` (Mac clásico) se normaliza pero no cuenta en `detect_eol` ni marca `mixed_eol`** — conversión silenciosa a LF. Contarlo en el voto o al menos marcar mixed; un test.
-19. **Trampa #6 es evitable** — anotar la transacción de `replaceText` con `userEvent: "reload"` y saltear `onDocChanged` para ella; `editor.ts` ya distingue por `isUserEvent`.
-20. **`is_stale_symlink` borra CUALQUIER symlink en `CLI_TARGET`** aunque el comentario dice "el nuestro"; chequear que `read_link` apunte al bundle. Honestidad doc/código más que riesgo.
-21. **Docs desincronizadas tras `b9eaf3b`** — `ARCHITECTURE.md`: tabla de `startup_file` sin `extra_ignored`; "`themeById()` cae al primer tema / nunca lanza" contradice trampa #33; "`restoreSession()` deliberadamente silencioso" contradice trampa #35; `likely_binary` referencia trampa #22 (es la #9, también en este ROADMAP); lista de lógica pura omitía `indent.ts` (también en `CLAUDE.md`). Este ROADMAP: "22 tests" (son 56 Vitest + 42 cargo). `CHANGELOG.md` cita "sección 7, ítem 3" para dos bugs distintos (el de concurrencia CLI es el ítem 4).
-22. **GC de snapshots de recovery huérfanos** — un original borrado o renombrado deja su `.recovery` para siempre en `app_data_dir()/recovery/`. Barrer al arrancar los más viejos de N días (30 es razonable: más que cualquier sesión abandonada, menos que "para siempre"). Desprendido del ítem 8.
+15. ~~**Errores tipados en IPC**~~ ✅ 2026-08-25 — `io_error.rs` (`IoError` con `tag = "kind"`: `not_found` | `permission_denied` | `too_large { size, limit }` | `other { message }`, `From<io::Error>`/`From<tauri::Error>`); los seis comandos de IO devuelven `Result<_, IoError>`; `size_limit_error` sale de `text_io.rs`. Frontend: `src/io-error.ts` (sin Tauri) con `isIoError`/`describeIoError`/`errorMessage`, usado en `openFile`/`restoreSession`/`writeTo`. El mensaje genérico conserva el verbo ("Could not read/save") vía `IO_OPERATION` como tercer parámetro — el enum no lleva la operación porque Rust no conoce la intención del usuario. Tests: +3 cargo, +7 Vitest. Trampa #50.
+16. ~~**Comandos IO síncronos bloqueaban el main thread**~~ ✅ 2026-08-25 — `read_file`, `write_file`, `save_recovery`, `read_recovery` son `async fn`; helpers de `fs_ops`/`text_io` siguen sync. Trampa #45.
+17. ~~**`std::env::args()` hacía panic con argv no-UTF-8 (Linux)**~~ ✅ 2026-08-25 — `args_os()` en `startup_file()`, `resolve_open_arg(&Path, &Path)`; test con nombre no-UTF-8. El callback de single-instance no se puede blindar (el plugin entrega `Vec<String>` y llama `args()` él mismo). Trampa #46.
+18. ~~**Lone `\r` (Mac clásico) se normalizaba sin contar en `detect_eol` ni marcar `mixed_eol`**~~ ✅ 2026-08-25 — CR-only cuenta: `mixed_eol = true` siempre que haya alguno; archivo 100% CR → `LF` + mixed. 3 tests. Trampa #47; invariante #9 de `CLAUDE.md` actualizado.
+19. ~~**Trampa #6 era evitable**~~ ✅ 2026-08-25 — `replaceText` despacha con `userEvent: "reload"` y el update listener no llama `onDocChanged` para esas transacciones; `reloadFromDisk` ya no depende del orden `replaceText` → reset de `dirty`. Trampa #6 reescrita. Pendiente verificar en vivo: status bar limpia tras reload y Ctrl+Z tras reload.
+20. ~~**`is_stale_symlink` borraba CUALQUIER symlink en `CLI_TARGET`**~~ ✅ 2026-08-25 — compara `read_link(CLI_TARGET).file_name()` con el de `current_exe()`; si no coincide cae a `osascript`. Trampa #48.
+21. ~~**Docs desincronizadas tras `b9eaf3b`**~~ ✅ 2026-08-25 — tabla `startup_file` con `extra_ignored`; `themeById()` → `DEFAULT_THEME_ID`; "deliberadamente silenciosos" reescrito en `ARCHITECTURE.md` e invariante #3 de `CLAUDE.md`; `likely_binary` → trampa #9 (ARCHITECTURE y ROADMAP §7 ítem 1); conteo de tests; CHANGELOG cita ítem 4 para la concurrencia CLI. Las listas de lógica pura ya incluían `indent.ts` tras el ítem 10.
+22. ~~**GC de snapshots de recovery huérfanos**~~ ✅ 2026-08-25 — `sweep_stale_recovery()` en `setup` (best-effort, solo archivos regulares); decisión pura `recovery::is_stale` con `RECOVERY_MAX_AGE_DAYS = 30`, 3 tests (mtime futuro nunca es stale). Trampa #49.
 
 **Gusto, no hallazgo (sin acción obligatoria):** `noUncheckedIndexedAccess` apagado aunque `indent.ts` ya codea como si estuviera prendido; `applyTheme(id: string)` donde `ThemeId` existe; `byId<T>` con cast sin chequeo.
 
