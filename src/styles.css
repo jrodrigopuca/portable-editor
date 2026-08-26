@@ -43,6 +43,17 @@ body {
   height: 100%;
 }
 
+/* Breathing room between line numbers and code. CodeMirror's default is
+   `0 3px 0 5px`, which reads as one column. Layout, not palette: the same
+   for every theme, so it lives here and not in themes.ts. */
+#editor .cm-lineNumbers .cm-gutterElement {
+  padding: 0 10px 0 12px;
+}
+
+#editor .cm-line {
+  padding-left: 8px;
+}
+
 #statusbar {
   display: flex;
   align-items: center;
