@@ -21,8 +21,15 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 - El punto de "sin guardar" (●) ahora se limpia solo si deshacés (`Mod+Z`) hasta volver exactamente al contenido que ya está guardado en disco — antes se quedaba marcando "sin guardar" aunque el contenido fuera idéntico byte a byte (ver ROADMAP.md sección 7, ítem 7).
 - Una carrera muy angosta entre el autosave (cada 10s) y un guardado real ya no podía dejar un recovery con contenido más viejo que lo ya guardado, ofreciendo "¿recuperar?" hacia atrás en el tiempo tras un crash (ver ROADMAP.md sección 7, ítem 8).
 - Todo acceso a `localStorage` (tema, fuente, wrap, recientes) ahora tolera que el storage falle (deshabilitado, cuota llena, perfil corrupto) en vez de romper el arranque de la app (ver ROADMAP.md sección 7, ítem 9).
+- `portable-editor -notes.txt` ya abre un archivo cuyo nombre empieza con guion, en vez de ignorarlo en silencio (ver ROADMAP.md sección 7, ítem 10).
+- Help → "Install 'portable-editor' Command" ya no pide contraseña de administrador en cada reinstalación — solo la primera vez, o si algo que no es nuestro symlink ocupa ese lugar (ver ROADMAP.md sección 7, ítem 11).
+- Seleccionar varios archivos en Finder y abrirlos con portable-editor ("Open With") ya avisa cuántos no se abrieron, en vez de descartarlos en silencio (ver ROADMAP.md sección 7, ítem 12).
+- Dos "Open With" casi simultáneos durante el arranque en frío (antes de que la ventana termine de cargar) ya no pisan uno al otro en silencio — se abre el primero y se avisa que el otro no se abrió, igual que la multi-selección (ver ROADMAP.md sección 7, ítem 13).
 - Copiar/cortar/pegar (`Mod+C`/`Mod+X`/`Mod+V`) no funcionaban en macOS, ni siquiera dentro del editor: faltaba un menú Edit nativo (`Cut`/`Copy`/`Paste`/`Select All`), sin el cual WKWebView no resuelve esos atajos.
 - `Mod+/` abría el panel de atajos en vez de comentar la línea (chocaba con el `toggleComment` de CodeMirror en las dos plataformas). El panel ahora usa `Mod+Shift+/`.
+- El fallback de tema corrupto en `localStorage` ahora usa `DEFAULT_THEME_ID` en vez de la primera entrada de la lista de temas — mismo resultado hoy, pero ya no depende del orden de esa lista (ver ROADMAP.md sección 7, ítem 14).
+- `detectIndent()` ya no escanea archivos grandes línea por línea sin límite — por encima de 10 MB asume la indentación por defecto en vez de potencialmente demorar la apertura (ver ROADMAP.md sección 7, ítem 15).
+- Reabrir la sesión anterior con el último archivo ya borrado o sin permisos ahora muestra un diálogo de error explicando qué pasó, en vez de un "untitled" vacío sin ninguna pista (ver ROADMAP.md sección 7, ítem 3).
 
 ## [0.2.0] - 2026-08-20
 

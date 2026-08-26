@@ -157,5 +157,11 @@ export const THEMES: readonly ThemeDefinition[] = [
 export const DEFAULT_THEME_ID: ThemeId = THEME_ID.ONE_DARK;
 
 export function themeById(id: string): ThemeDefinition {
-  return THEMES.find((theme) => theme.id === id) ?? THEMES[0];
+  const found = THEMES.find((theme) => theme.id === id);
+  if (found !== undefined) return found;
+  const fallback = THEMES.find((theme) => theme.id === DEFAULT_THEME_ID);
+  if (fallback === undefined) {
+    throw new Error(`DEFAULT_THEME_ID "${DEFAULT_THEME_ID}" is missing from THEMES`);
+  }
+  return fallback;
 }

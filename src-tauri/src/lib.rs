@@ -8,8 +8,9 @@ mod text_io;
 use text_io::DecodedFile;
 
 /// File received via the OS "Open with..." (macOS Opened event) before the
-/// frontend is ready to listen for it.
-struct PendingFile(Mutex<Option<String>>);
+/// frontend is ready to listen for it. Holds the full `StartupTarget` (not
+/// just the path) so `extra_ignored` survives the trip to `startup_file()`.
+struct PendingFile(Mutex<Option<StartupTarget>>);
 
 /// Reads the whole file, detecting its encoding (BOM, else UTF-8, else
 /// Windows-1252 fallback) and line ending style. See `text_io`.
@@ -274,11 +275,14 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
 
 /// A path to open on startup or via "Open with...", plus whether it already
 /// exists — `false` means "create a new file here" (e.g. `portable-editor
-/// notes.md` where notes.md doesn't exist yet, same as vim/nano/code).
+/// notes.md` where notes.md doesn't exist yet, same as vim/nano/code) — and
+/// how many OTHER files handed to us at the same time were dropped, since
+/// portable-editor only ever opens one (see `extra_ignored` where it's set).
 #[derive(Serialize, Clone)]
 struct StartupTarget {
     path: String,
     exists: bool,
+    extra_ignored: usize,
 }
 
 /// Resolves a CLI argument to an absolute path relative to `base_dir`,
@@ -292,12 +296,14 @@ fn resolve_open_arg(base_dir: &Path, arg: &str) -> Option<StartupTarget> {
         return Some(StartupTarget {
             path: canon.to_string_lossy().into_owned(),
             exists: true,
+            extra_ignored: 0,
         });
     }
     let absolute = std::path::absolute(&candidate).ok()?;
     Some(StartupTarget {
         path: absolute.to_string_lossy().into_owned(),
         exists: false,
+        extra_ignored: 0,
     })
 }
 
@@ -307,13 +313,10 @@ fn resolve_open_arg(base_dir: &Path, arg: &str) -> Option<StartupTarget> {
 /// not exist yet.
 #[tauri::command]
 fn startup_file(pending: tauri::State<PendingFile>) -> Option<StartupTarget> {
-    if let Some(path) = pending.0.lock().unwrap().take() {
-        return Some(StartupTarget { path, exists: true });
+    if let Some(target) = pending.0.lock().unwrap().take() {
+        return Some(target);
     }
     let arg = std::env::args().nth(1)?;
-    if arg.starts_with('-') {
-        return None;
-    }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     resolve_open_arg(&cwd, &arg)
 }
@@ -351,6 +354,23 @@ fn install_cli_command() -> Result<String, String> {
             return Ok("Installed. Open a new terminal and run: portable-editor".to_string());
         }
 
+        // AlreadyExists is the common re-run case (already installed, or the
+        // app moved/updated) — not a permissions problem. If it's our own
+        // old symlink, replacing it needs no more privilege than creating it
+        // did, so do that instead of prompting for admin on every reinstall.
+        // Anything else at CLI_TARGET (a real file, e.g. from some other
+        // program) is left alone and falls through to the admin path below,
+        // same as before.
+        let is_stale_symlink = std::fs::symlink_metadata(CLI_TARGET)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false);
+        if is_stale_symlink
+            && std::fs::remove_file(CLI_TARGET).is_ok()
+            && std::os::unix::fs::symlink(&exe, CLI_TARGET).is_ok()
+        {
+            return Ok("Installed. Open a new terminal and run: portable-editor".to_string());
+        }
+
         let script = r#"on run argv
     set exePath to item 1 of argv
     set targetPath to item 2 of argv
@@ -384,7 +404,7 @@ pub fn run() {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
-            if let Some(arg) = args.into_iter().nth(1).filter(|a| !a.starts_with('-')) {
+            if let Some(arg) = args.into_iter().nth(1) {
                 if let Some(target) = resolve_open_arg(Path::new(&cwd), &arg) {
                     let _ = app.emit("open-file", target);
                 }
@@ -415,14 +435,37 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
                 use tauri::{Emitter, Manager};
-                if let Some(path) = urls
-                    .into_iter()
-                    .filter_map(|u| u.to_file_path().ok())
-                    .next()
-                {
-                    let path = path.to_string_lossy().into_owned();
-                    *app.state::<PendingFile>().0.lock().unwrap() = Some(path.clone());
-                    let _ = app.emit("open-file", StartupTarget { path, exists: true });
+                // Finder's "Open With" on a multi-selection hands us every
+                // URL in one event — portable-editor opens one file at a
+                // time by design, so the rest are dropped, but the frontend
+                // needs `extra_ignored` to tell the user instead of just
+                // silently acting on the first one.
+                let mut paths = urls.into_iter().filter_map(|u| u.to_file_path().ok());
+                if let Some(path) = paths.next() {
+                    let extra_this_event = paths.count();
+                    let pending_state = app.state::<PendingFile>();
+                    let mut pending = pending_state.0.lock().unwrap();
+                    if let Some(existing) = pending.as_mut() {
+                        // A second Opened event landed before the frontend's
+                        // single startup_file() poll consumed the first one
+                        // (cold-start race — e.g. two near-simultaneous
+                        // double-clicks in Finder before the webview finishes
+                        // loading). Nobody has an `open-file` listener yet
+                        // either way, so there's no point emitting this one.
+                        // Keep the first target (first-come-first-served,
+                        // same tiebreak as within one event) and fold this
+                        // whole event's files into extra_ignored so the count
+                        // the user eventually sees isn't silently short.
+                        existing.extra_ignored += 1 + extra_this_event;
+                    } else {
+                        let target = StartupTarget {
+                            path: path.to_string_lossy().into_owned(),
+                            exists: true,
+                            extra_ignored: extra_this_event,
+                        };
+                        *pending = Some(target.clone());
+                        let _ = app.emit("open-file", target);
+                    }
                 }
             }
             #[cfg(not(target_os = "macos"))]

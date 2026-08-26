@@ -9,6 +9,15 @@ export interface IndentInfo {
 const DEFAULT_SPACES: IndentInfo = { type: INDENT_TYPE.SPACES, width: 2 };
 const DEFAULT_TABS_WIDTH = 4;
 
+// Above this, skip the scan below entirely and assume the default — same
+// threshold and reasoning as HIGHLIGHT_SIZE_LIMIT in main.ts: a full-text
+// `split("\n")` over a huge document would cost real time on every open, and
+// a wrong guess here just means clicking the indent button once. Declared
+// independently rather than imported from main.ts: this is a performance
+// bound on this specific scan, not the app's highlighting policy — they
+// happen to agree today, but there's no reason they must stay coupled.
+export const DETECT_INDENT_SIZE_LIMIT = 10 * 1024 * 1024;
+
 /**
  * Heuristic, not a perfect detector: counts lines starting with a tab vs a
  * space, and for space-indented files guesses the unit width as the
@@ -18,6 +27,8 @@ const DEFAULT_TABS_WIDTH = 4;
  * best-effort guess, same spirit as the encoding fallback in text_io.rs).
  */
 export function detectIndent(text: string): IndentInfo {
+  if (text.length > DETECT_INDENT_SIZE_LIMIT) return DEFAULT_SPACES;
+
   let tabLines = 0;
   let spaceLines = 0;
   let minSpaceIndent = Number.POSITIVE_INFINITY;

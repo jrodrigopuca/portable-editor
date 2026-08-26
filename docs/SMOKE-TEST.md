@@ -16,13 +16,16 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] Botón **Open** y `Mod+O` abren el diálogo nativo
 - [ ] Drag & drop de un archivo a la ventana lo abre
 - [ ] Terminal: `portable-editor archivo.txt` abre el archivo
+- [ ] Terminal: `portable-editor -notes.txt` (nombre que empieza con guion) abre ese archivo, no lo ignora
 - [ ] Con la app abierta, `portable-editor otro.txt` desde otra terminal reutiliza la ventana (single instance)
 - [ ] `portable-editor archivo-que-no-existe.txt` abre un editor vacío con ese nombre en la status bar (no otro archivo, no error) — guardar crea el archivo en ese path sin pedir ubicación
 - [ ] Con un archivo abierto y SIN cambios sin guardar: `portable-editor otro.txt` desde otra terminal pregunta antes de reemplazarlo (no lo hace en silencio)
 - [ ] Dos invocaciones CLI casi simultáneas (`portable-editor a.txt & portable-editor b.txt &` en la misma línea) → los dos diálogos de confirmación aparecen uno a la vez, en orden, no superpuestos; el resultado final es consistente con las respuestas dadas (no "gana" el que resuelve más rápido)
 - [ ] (macOS) Help → "Install 'portable-editor' Command" instala el symlink; `which portable-editor` lo resuelve desde una terminal nueva
+- [ ] (macOS) Correr "Install 'portable-editor' Command" una segunda vez (ya instalado) → NO pide contraseña de administrador
 - [ ] Editar un archivo sin guardar, esperar >10s, matar el proceso (`kill -9`, no cerrar normal) → reabrir el mismo archivo pregunta si recuperar; aceptar muestra el contenido editado con el punto de "sin guardar"; guardar limpia el recovery
 - [ ] (Solo bundle instalado) "Open with..." desde Finder/file manager funciona
+- [ ] (macOS, bundle instalado) Seleccionar 2+ archivos en Finder → "Open With" → portable-editor: abre el primero y muestra un diálogo avisando cuántos no se abrieron
 - [ ] Abrir un `.ts` o `.py` → highlighting correcto y lenguaje en la status bar
 
 ## Robustez
@@ -47,6 +50,7 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] `Alt+Z` y el botón Wrap conmutan el ajuste de línea; sobrevive a reiniciar
 - [ ] Dropdown "Recent" lista los últimos archivos y los abre
 - [ ] Reiniciar la app sin argumentos → reabre el último archivo en la misma línea/columna
+- [ ] Borrar el último archivo abierto desde otra terminal y reiniciar la app sin argumentos → aparece un diálogo de error explicando qué pasó (no un "untitled" vacío sin explicación)
 
 ## Editor
 

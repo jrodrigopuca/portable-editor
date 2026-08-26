@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DETECT_INDENT_SIZE_LIMIT,
   detectIndent,
   INDENT_TYPE,
   indentLabel,
@@ -33,6 +34,13 @@ describe("detectIndent", () => {
 
   it("picks the smallest non-zero indent as the unit width", () => {
     const text = "a\n  b\n    c\n";
+    expect(detectIndent(text)).toEqual({ type: INDENT_TYPE.SPACES, width: 2 });
+  });
+
+  it("skips the scan and defaults to 2 spaces above DETECT_INDENT_SIZE_LIMIT", () => {
+    // Tab-indented and well over the limit — if the scan ran, it would
+    // detect tabs, not spaces. Confirms the guard short-circuits first.
+    const text = "\t".repeat(DETECT_INDENT_SIZE_LIMIT + 1);
     expect(detectIndent(text)).toEqual({ type: INDENT_TYPE.SPACES, width: 2 });
   });
 });

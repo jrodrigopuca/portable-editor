@@ -100,6 +100,20 @@ interface DecodedFile {
 interface StartupTarget {
   path: string;
   exists: boolean;
+  /** Other files handed to the OS "Open with..." at once, dropped because
+   * portable-editor only opens one — see notifyExtraFilesIgnored(). */
+  extra_ignored: number;
+}
+
+/** macOS "Open With" on a multi-selection hands the app every file at once;
+ * only the first is opened (single-file identity), so this is the one place
+ * the user learns the rest didn't just silently vanish. */
+async function notifyExtraFilesIgnored(count: number): Promise<void> {
+  if (count === 0) return;
+  await message(
+    `portable-editor opens one file at a time. ${count} other file${count === 1 ? " was" : "s were"} not opened.`,
+    { title: APP_NAME },
+  );
 }
 
 interface DocState {
@@ -413,7 +427,8 @@ async function restoreSession(): Promise<void> {
       doc.dirty = true;
       updateStatus();
     }
-  } catch {
+  } catch (err) {
+    await message(String(err), { title: APP_NAME, kind: "error" });
     forgetRecent(last.path);
   }
 }
@@ -764,10 +779,11 @@ void getCurrentWebview().onDragDropEvent((event) => {
 let openFileQueue: Promise<void> = Promise.resolve();
 
 void listen<StartupTarget>("open-file", (event) => {
-  const { path, exists } = event.payload;
+  const { path, exists, extra_ignored } = event.payload;
   openFileQueue = openFileQueue
     .catch(() => {}) // one failed open must not block the next
-    .then(() => (exists ? openFile(path, true) : openNewFileAt(path, true)));
+    .then(() => (exists ? openFile(path, true) : openNewFileAt(path, true)))
+    .then(() => notifyExtraFilesIgnored(extra_ignored));
 });
 
 // Native File menu clicks/accelerators (see src-tauri/src/lib.rs build_menu)
@@ -809,6 +825,7 @@ async function init(): Promise<void> {
   const startup = await invoke<StartupTarget | null>("startup_file");
   if (startup !== null) {
     await (startup.exists ? openFile(startup.path, true) : openNewFileAt(startup.path, true));
+    await notifyExtraFilesIgnored(startup.extra_ignored);
   } else {
     updateStatus();
     await applyLanguage();
