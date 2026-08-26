@@ -41,6 +41,27 @@ function byId<T extends HTMLElement>(id: string): T {
   return node as T;
 }
 
+// `localStorage` can throw (disabled storage, full quota, a corrupted
+// profile) — every caller below already degrades to a safe default when a
+// key is simply absent (parseFontSize, parseRecent, themeById...), so a
+// thrown read/write should read the same as "nothing saved" rather than
+// crash init() or interrupt editing. Same best-effort spirit as autosave.
+function safeGetItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Best-effort: losing a preference write isn't worth interrupting editing.
+  }
+}
+
 const el = {
   editor: byId<HTMLDivElement>("editor"),
   btnNew: byId<HTMLButtonElement>("btn-new"),
@@ -110,8 +131,8 @@ const lastCursor = { line: 1, col: 1 };
 // of lying "unsaved" forever after. null for untitled files: there's no disk
 // state to return to, so undoing to empty still isn't "saved".
 let savedText: string | null = null;
-let fontSize = parseFontSize(localStorage.getItem(FONT_KEY));
-let wrapOn = localStorage.getItem(WRAP_KEY) === "true";
+let fontSize = parseFontSize(safeGetItem(FONT_KEY));
+let wrapOn = safeGetItem(WRAP_KEY) === "true";
 
 const editor = createEditor(el.editor, {
   onDocChanged: (text, isHistoryTraversal) => {
@@ -199,11 +220,11 @@ async function confirmOpenBinary(path: string): Promise<boolean> {
 // ---------- Recent files (pure logic lives in recent.ts) ----------
 
 function loadRecent(): RecentEntry[] {
-  return parseRecent(localStorage.getItem(RECENT_KEY));
+  return parseRecent(safeGetItem(RECENT_KEY));
 }
 
 function saveRecent(entries: RecentEntry[]): void {
-  localStorage.setItem(RECENT_KEY, JSON.stringify(entries.slice(0, RECENT_MAX)));
+  safeSetItem(RECENT_KEY, JSON.stringify(entries.slice(0, RECENT_MAX)));
 }
 
 function rememberRecent(path: string): void {
@@ -495,8 +516,17 @@ const AUTOSAVE_INTERVAL_MS = 10_000;
 
 async function autosaveTick(): Promise<void> {
   if (doc.path === null || !doc.dirty) return;
+  const path = doc.path;
   try {
-    await invoke("save_recovery", { path: doc.path, contents: editor.getText() });
+    await invoke("save_recovery", { path, contents: editor.getText() });
+    // A real save can complete while the write above was in flight —
+    // writeTo() already clears the recovery file for `path`, but that clear
+    // can finish BEFORE this (now-stale) write lands, leaving a pre-save
+    // snapshot sitting there right after a successful save. If the doc is
+    // no longer dirty for this same path, a save beat us to it: clean up
+    // after ourselves instead of leaving a misleading "recover this?" offer
+    // pointing at older content than what's already safely on disk.
+    if (!doc.dirty && doc.path === path) void clearRecovery(path);
   } catch {
     // Best-effort safety net; a failed autosave shouldn't interrupt editing.
   }
@@ -538,7 +568,7 @@ async function checkExternalChange(): Promise<void> {
 
 function applyFont(): void {
   document.documentElement.style.setProperty("--editor-font-size", `${fontSize}px`);
-  localStorage.setItem(FONT_KEY, String(fontSize));
+  safeSetItem(FONT_KEY, String(fontSize));
 }
 
 function adjustFont(delta: number): void {
@@ -549,7 +579,7 @@ function adjustFont(delta: number): void {
 function applyWrap(): void {
   editor.setWrap(wrapOn);
   el.btnWrap.textContent = `Wrap: ${wrapOn ? "on" : "off"}`;
-  localStorage.setItem(WRAP_KEY, String(wrapOn));
+  safeSetItem(WRAP_KEY, String(wrapOn));
 }
 
 function toggleWrap(): void {
@@ -561,7 +591,7 @@ function applyTheme(id: string): void {
   const theme = themeById(id);
   editor.setTheme(theme.id);
   document.body.dataset.dark = String(theme.dark);
-  localStorage.setItem(THEME_KEY, theme.id);
+  safeSetItem(THEME_KEY, theme.id);
 }
 
 function initThemes(): void {
@@ -571,7 +601,7 @@ function initThemes(): void {
     option.textContent = theme.label;
     el.themeSelect.appendChild(option);
   }
-  const initial = themeById(localStorage.getItem(THEME_KEY) ?? DEFAULT_THEME_ID);
+  const initial = themeById(safeGetItem(THEME_KEY) ?? DEFAULT_THEME_ID);
   el.themeSelect.value = initial.id;
   applyTheme(initial.id);
   el.themeSelect.addEventListener("change", () => {
