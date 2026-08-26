@@ -31,8 +31,8 @@ La versión del bundle sale de `src-tauri/tauri.conf.json` → `"version"`. Para
 3. Commit + tag: el tag dispara el workflow de publicación.
 
 ```sh
-git commit -am "chore: bump version to 0.2.0"
-git tag v0.2.0
+git commit -am "chore: bump version to X.Y.Z"
+git tag vX.Y.Z
 git push origin main --tags
 ```
 
@@ -155,10 +155,10 @@ Flujo completo de un release:
 npx tsc --noEmit
 
 # 2. Bump de versión (tauri.conf.json + package.json + Cargo.toml) y commit
-git commit -am "chore: bump version to 0.2.0"
+git commit -am "chore: bump version to X.Y.Z"
 
 # 3. Tag y push
-git tag v0.2.0
+git tag vX.Y.Z
 git push origin main --tags
 
 # 4. Esperar el workflow (~10-20 min), revisar el draft en GitHub → Releases → publicar
@@ -170,7 +170,7 @@ git push origin main --tags
 - [ ] La app probada con `npm run tauri dev` (abrir, editar, guardar, temas)
 - [ ] Versión bumpeada en `tauri.conf.json`
 - [ ] Íconos propios (solo primer release)
-- [ ] Release notes preparadas (qué cambió, y en macOS sin firma: instrucciones de Gatekeeper)
+- [ ] `CHANGELOG.md`: mover "[Sin publicar]" a una sección `[X.Y.Z] - fecha` (los builds de macOS van firmados y notarizados: sin instrucciones de Gatekeeper)
 
 ---
 

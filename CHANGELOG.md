@@ -5,6 +5,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 ## [Sin publicar]
 
+## [0.3.0] - 2026-08-26
+
 ### Agregado
 
 - Nord y Solarized Light tienen su propia status bar, panel de búsqueda y panel de atajos (colores de sus paletas oficiales); antes usaban los de One Dark y de Paper y se veían "pegados" (ver ROADMAP.md sección 11, pregunta abierta → resuelta).

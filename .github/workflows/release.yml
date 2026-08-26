@@ -69,7 +69,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "portable-editor ${{ github.ref_name }}"
-          releaseBody: "See the assets below. macOS unsigned builds: right-click → Open, or run `xattr -cr` on the app."
+          releaseBody: "See CHANGELOG.md for what changed. macOS builds are signed and notarized; Linux: .deb, .rpm and .AppImage."
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
