@@ -105,11 +105,23 @@ const doc: DocState = {
   indent: detectIndent(""),
 };
 const lastCursor = { line: 1, col: 1 };
+// Content as of the last save/load — the baseline an undo/redo is compared
+// against so the dirty flag can clear itself on landing back on it, instead
+// of lying "unsaved" forever after. null for untitled files: there's no disk
+// state to return to, so undoing to empty still isn't "saved".
+let savedText: string | null = null;
 let fontSize = parseFontSize(localStorage.getItem(FONT_KEY));
 let wrapOn = localStorage.getItem(WRAP_KEY) === "true";
 
 const editor = createEditor(el.editor, {
-  onDocChanged: () => {
+  onDocChanged: (text, isHistoryTraversal) => {
+    if (isHistoryTraversal && savedText !== null && text === savedText) {
+      if (doc.dirty) {
+        doc.dirty = false;
+        updateStatus();
+      }
+      return;
+    }
     if (!doc.dirty) {
       doc.dirty = true;
       updateStatus();
@@ -282,6 +294,7 @@ async function newFile(): Promise<void> {
   void clearRecovery(doc.path);
   syncRecentCursor();
   editor.setText("");
+  savedText = null; // untitled: no disk state for undo-to-clean to land on
   doc.path = null;
   doc.dirty = false;
   doc.mtime = null;
@@ -309,6 +322,7 @@ async function openNewFileAt(path: string, external = false): Promise<void> {
   syncRecentCursor();
   const contents = await checkRecovery(path, "");
   editor.setText(contents);
+  savedText = null; // path doesn't exist on disk yet — nothing to undo back to
   doc.path = path;
   doc.dirty = false;
   doc.mtime = null;
@@ -344,6 +358,7 @@ async function openFile(presetPath?: string, external = false): Promise<void> {
     const contents = await checkRecovery(path, file.contents);
     doc.indent = detectIndent(contents);
     editor.setText(contents);
+    savedText = file.contents; // the disk baseline, not the recovered content
     applyIndent();
     await afterFileLoaded(path);
     if (contents !== file.contents) {
@@ -369,6 +384,7 @@ async function restoreSession(): Promise<void> {
     const contents = await checkRecovery(last.path, file.contents);
     doc.indent = detectIndent(contents);
     editor.setText(contents);
+    savedText = file.contents; // the disk baseline, not the recovered content
     applyIndent();
     await afterFileLoaded(last.path);
     editor.setCursor(last.line, last.col);
@@ -406,8 +422,10 @@ async function saveFileAs(): Promise<void> {
 
 async function writeTo(path: string): Promise<boolean> {
   try {
-    await invoke("write_file", { path, contents: editor.getText(), eol: doc.eol });
+    const contents = editor.getText();
+    await invoke("write_file", { path, contents, eol: doc.eol });
     doc.dirty = false;
+    savedText = contents;
     // Save policy: always UTF-8 on disk, regardless of the source encoding.
     doc.encoding = ENCODING_UTF8;
     void clearRecovery(path);
@@ -459,6 +477,7 @@ async function reloadFromDisk(): Promise<void> {
   doc.mixedEol = file.mixed_eol;
   doc.indent = detectIndent(file.contents);
   editor.replaceText(file.contents);
+  savedText = file.contents;
   applyIndent();
   doc.dirty = false;
   updateStatus();

@@ -8,7 +8,9 @@ import { basename } from "./paths";
 import { DEFAULT_THEME_ID, themeById } from "./themes";
 
 export interface EditorCallbacks {
-  onDocChanged: () => void;
+  /** `isHistoryTraversal` is true for undo/redo, false for a regular edit —
+   * lets the caller tell "back to some earlier state" apart from "changed". */
+  onDocChanged: (text: string, isHistoryTraversal: boolean) => void;
   onCursorMoved: (line: number, col: number) => void;
 }
 
@@ -53,7 +55,12 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks): E
     wrapConfig.of(currentWrap ? EditorView.lineWrapping : []),
     indentConfig.of(indentUnit.of(currentIndentUnit)),
     EditorView.updateListener.of((update) => {
-      if (update.docChanged) callbacks.onDocChanged();
+      if (update.docChanged) {
+        const isHistoryTraversal = update.transactions.some(
+          (tr) => tr.isUserEvent("undo") || tr.isUserEvent("redo"),
+        );
+        callbacks.onDocChanged(update.state.doc.toString(), isHistoryTraversal);
+      }
       if (update.docChanged || update.selectionSet) {
         const head = update.state.selection.main.head;
         const line = update.state.doc.lineAt(head);

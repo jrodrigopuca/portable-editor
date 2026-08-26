@@ -52,6 +52,7 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 
 - [ ] `Mod+F` abre búsqueda y encuentra texto
 - [ ] `Mod+Z` / `Mod+Shift+Z` deshacen/rehacen
+- [ ] Guardar un archivo, escribir texto, deshacer con `Mod+Z` hasta volver exactamente al contenido guardado → el punto de "sin guardar" (●) desaparece solo
 - [ ] `Mod+D` selecciona la siguiente ocurrencia; `Alt+click` agrega cursor
 - [ ] Números de línea visibles y línea activa resaltada
 
