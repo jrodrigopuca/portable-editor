@@ -15,7 +15,7 @@ import {
 } from "./document";
 import { createEditor, PLAIN_TEXT_LABEL } from "./editor";
 import { indentLabel, indentUnitString, nextIndentPreset } from "./indent";
-import { errorMessage, IO_ERROR_KIND, IO_OPERATION, isIoError } from "./io-error";
+import { errorMessage, IO_ERROR_KIND, IO_OPERATION, isIoError, PLATFORM } from "./io-error";
 import * as ipc from "./ipc";
 import { isMenuAction, MENU_ACTION, type StartupTarget } from "./ipc";
 import { basename } from "./paths";
@@ -41,6 +41,10 @@ const MTIME_POLL_MS = 2000;
 const HIGHLIGHT_SIZE_LIMIT = 10 * 1024 * 1024;
 
 const appWindow = getCurrentWindow();
+// The editor ships for exactly two platforms; this drives key labels and
+// platform-specific error hints, nothing that changes behaviour.
+const isMac = navigator.userAgent.includes("Mac");
+const platform = isMac ? PLATFORM.MACOS : PLATFORM.LINUX;
 
 function byId<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -381,7 +385,10 @@ async function runOpenFile(presetPath?: string, external = false): Promise<void>
     await afterFileLoaded(path);
     editor.focus();
   } catch (err) {
-    await message(errorMessage(err, path, IO_OPERATION.READ), { title: APP_NAME, kind: "error" });
+    await message(errorMessage(err, path, IO_OPERATION.READ, platform), {
+      title: APP_NAME,
+      kind: "error",
+    });
     if (isGone(err)) forgetRecent(path);
   }
 }
@@ -405,7 +412,7 @@ async function restoreSession(): Promise<void> {
     await afterFileLoaded(last.path);
     editor.setCursor(last.line, last.col);
   } catch (err) {
-    await message(errorMessage(err, last.path, IO_OPERATION.READ), {
+    await message(errorMessage(err, last.path, IO_OPERATION.READ, platform), {
       title: APP_NAME,
       kind: "error",
     });
@@ -455,7 +462,10 @@ async function writeTo(path: string): Promise<boolean> {
     if (!doc.dirty) void clearRecovery(path);
     return true;
   } catch (err) {
-    await message(errorMessage(err, path, IO_OPERATION.SAVE), { title: APP_NAME, kind: "error" });
+    await message(errorMessage(err, path, IO_OPERATION.SAVE, platform), {
+      title: APP_NAME,
+      kind: "error",
+    });
     return false;
   }
 }
@@ -655,8 +665,6 @@ const SHORTCUTS: readonly ShortcutEntry[] = [
   { keys: "Alt+Z", action: "Toggle word wrap" },
   { keys: "Mod+Shift+/", action: "Show this panel" },
 ];
-
-const isMac = navigator.userAgent.includes("Mac");
 
 function formatKeys(keys: string): string {
   const symbols: Record<string, string> = {

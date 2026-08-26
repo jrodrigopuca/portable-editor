@@ -45,6 +45,13 @@ export const IO_OPERATION = {
 } as const;
 export type IoOperation = (typeof IO_OPERATION)[keyof typeof IO_OPERATION];
 
+/** The only two the editor ships for. Decides platform-specific hints, nothing else. */
+export const PLATFORM = {
+  MACOS: "macos",
+  LINUX: "linux",
+} as const;
+export type Platform = (typeof PLATFORM)[keyof typeof PLATFORM];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -72,7 +79,12 @@ function formatMb(bytes: number): string {
 }
 
 /** The user-facing sentence for an IO failure on `path` during `operation`. */
-export function describeIoError(err: IoError, path: string, operation: IoOperation): string {
+export function describeIoError(
+  err: IoError,
+  path: string,
+  operation: IoOperation,
+  platform: Platform,
+): string {
   switch (err.kind) {
     case IO_ERROR_KIND.NOT_FOUND:
       // On a save the FILE not existing is expected (that's what saving
@@ -84,7 +96,11 @@ export function describeIoError(err: IoError, path: string, operation: IoOperati
       // On macOS this is usually not a chmod problem but TCC: Desktop,
       // Documents and Downloads need a per-app grant, and a denied or
       // unanswered prompt surfaces as EPERM on every write after the first.
-      return `Permission denied: ${path}. On macOS, check System Settings → Privacy & Security → Files and Folders.`;
+      // Linux has no such layer for a native binary — there the plain
+      // sentence is the whole truth, and a macOS hint would only mislead.
+      return platform === PLATFORM.MACOS
+        ? `Permission denied: ${path}. Check System Settings → Privacy & Security → Files and Folders.`
+        : `Permission denied: ${path}.`;
     case IO_ERROR_KIND.TOO_LARGE:
       return `${path} is ${formatMb(err.size)}, larger than portable-editor's ${formatMb(err.limit)} limit. Open it with a different tool.`;
     case IO_ERROR_KIND.OTHER:
@@ -97,6 +113,11 @@ export function describeIoError(err: IoError, path: string, operation: IoOperati
  * a file-IO command gets its sentence; anything else (non-IO commands still
  * reject with plain strings, and `String(err)` covers unexpected shapes too).
  */
-export function errorMessage(err: unknown, path: string, operation: IoOperation): string {
-  return isIoError(err) ? describeIoError(err, path, operation) : String(err);
+export function errorMessage(
+  err: unknown,
+  path: string,
+  operation: IoOperation,
+  platform: Platform,
+): string {
+  return isIoError(err) ? describeIoError(err, path, operation, platform) : String(err);
 }

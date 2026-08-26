@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { describeIoError, errorMessage, IO_ERROR_KIND, IO_OPERATION, isIoError } from "./io-error";
+import {
+  describeIoError,
+  errorMessage,
+  IO_ERROR_KIND,
+  IO_OPERATION,
+  isIoError,
+  PLATFORM,
+} from "./io-error";
 
 const MB = 1024 * 1024;
 
@@ -22,19 +29,37 @@ describe("isIoError", () => {
 
 describe("describeIoError", () => {
   it("not_found names the path on read, and blames the folder on save", () => {
-    expect(describeIoError({ kind: IO_ERROR_KIND.NOT_FOUND }, "/a/b.txt", IO_OPERATION.READ)).toBe(
-      "/a/b.txt does not exist.",
-    );
-    expect(describeIoError({ kind: IO_ERROR_KIND.NOT_FOUND }, "/a/b.txt", IO_OPERATION.SAVE)).toBe(
-      "Could not save /a/b.txt: its folder no longer exists.",
+    expect(
+      describeIoError(
+        { kind: IO_ERROR_KIND.NOT_FOUND },
+        "/a/b.txt",
+        IO_OPERATION.READ,
+        PLATFORM.LINUX,
+      ),
+    ).toBe("/a/b.txt does not exist.");
+    expect(
+      describeIoError(
+        { kind: IO_ERROR_KIND.NOT_FOUND },
+        "/a/b.txt",
+        IO_OPERATION.SAVE,
+        PLATFORM.LINUX,
+      ),
+    ).toBe("Could not save /a/b.txt: its folder no longer exists.");
+  });
+
+  it("permission_denied is the plain truth on Linux", () => {
+    const err = { kind: IO_ERROR_KIND.PERMISSION_DENIED } as const;
+    expect(describeIoError(err, "/etc/shadow", IO_OPERATION.SAVE, PLATFORM.LINUX)).toBe(
+      "Permission denied: /etc/shadow.",
     );
   });
 
-  it("permission_denied names the path", () => {
+  it("permission_denied points at TCC on macOS (Downloads/Documents/Desktop need a per-app grant)", () => {
+    const err = { kind: IO_ERROR_KIND.PERMISSION_DENIED } as const;
     expect(
-      describeIoError({ kind: IO_ERROR_KIND.PERMISSION_DENIED }, "/etc/shadow", IO_OPERATION.SAVE),
+      describeIoError(err, "/Users/x/Downloads/a.json", IO_OPERATION.SAVE, PLATFORM.MACOS),
     ).toBe(
-      "Permission denied: /etc/shadow. On macOS, check System Settings → Privacy & Security → Files and Folders.",
+      "Permission denied: /Users/x/Downloads/a.json. Check System Settings → Privacy & Security → Files and Folders.",
     );
   });
 
@@ -43,6 +68,7 @@ describe("describeIoError", () => {
       { kind: IO_ERROR_KIND.TOO_LARGE, size: 150 * MB, limit: 100 * MB },
       "/tmp/huge.log",
       IO_OPERATION.READ,
+      PLATFORM.LINUX,
     );
     expect(msg).toBe(
       "/tmp/huge.log is 150 MB, larger than portable-editor's 100 MB limit. Open it with a different tool.",
@@ -51,10 +77,10 @@ describe("describeIoError", () => {
 
   it("other carries the OS message and the operation verb", () => {
     const err = { kind: IO_ERROR_KIND.OTHER, message: "Is a directory (os error 21)" } as const;
-    expect(describeIoError(err, "/x", IO_OPERATION.READ)).toBe(
+    expect(describeIoError(err, "/x", IO_OPERATION.READ, PLATFORM.LINUX)).toBe(
       "Could not read /x: Is a directory (os error 21)",
     );
-    expect(describeIoError(err, "/x", IO_OPERATION.SAVE)).toBe(
+    expect(describeIoError(err, "/x", IO_OPERATION.SAVE, PLATFORM.LINUX)).toBe(
       "Could not save /x: Is a directory (os error 21)",
     );
   });
@@ -62,10 +88,19 @@ describe("describeIoError", () => {
 
 describe("errorMessage", () => {
   it("formats IoError and falls back to String() otherwise", () => {
-    expect(errorMessage({ kind: "not_found" }, "/p", IO_OPERATION.READ)).toBe("/p does not exist.");
-    expect(errorMessage("Installation was cancelled or failed.", "/p", IO_OPERATION.READ)).toBe(
-      "Installation was cancelled or failed.",
+    expect(errorMessage({ kind: "not_found" }, "/p", IO_OPERATION.READ, PLATFORM.LINUX)).toBe(
+      "/p does not exist.",
     );
-    expect(errorMessage(new Error("boom"), "/p", IO_OPERATION.SAVE)).toBe("Error: boom");
+    expect(
+      errorMessage(
+        "Installation was cancelled or failed.",
+        "/p",
+        IO_OPERATION.READ,
+        PLATFORM.LINUX,
+      ),
+    ).toBe("Installation was cancelled or failed.");
+    expect(errorMessage(new Error("boom"), "/p", IO_OPERATION.SAVE, PLATFORM.LINUX)).toBe(
+      "Error: boom",
+    );
   });
 });
