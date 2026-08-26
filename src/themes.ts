@@ -13,12 +13,72 @@ export const THEME_ID = {
 
 export type ThemeId = (typeof THEME_ID)[keyof typeof THEME_ID];
 
+/**
+ * Colors of the program's chrome — status bar, search panel, shortcuts
+ * panel — as opposed to the editor's content. Every theme MUST say how its
+ * chrome looks: a theme isn't finished until it does. (Until 2026-08-26 the
+ * chrome was dark/light binary, and Nord and Solarized wore One Dark's and
+ * GitHub's bars — "two apps glued together".) Published as `--chrome-*`
+ * CSS variables by `applyTheme` in main.ts; styles.css only reads them.
+ */
+export interface ThemeChrome {
+  background: string;
+  foreground: string;
+  /** Between chrome and editor, and around inputs. */
+  border: string;
+  /** Text fields and buttons inside the chrome (search panel). */
+  field: string;
+  /** Focus ring of those fields. */
+  accent: string;
+}
+
 export interface ThemeDefinition {
   id: ThemeId;
   label: string;
   dark: boolean;
   extension: Extension;
+  chrome: ThemeChrome;
 }
+
+// One Dark's own UI colors (Atom): the values the chrome had before it was
+// per-theme. The palette lives in @codemirror/theme-one-dark, so it has no
+// ThemePalette here — only its chrome.
+const ONE_DARK_CHROME: ThemeChrome = {
+  background: "#21252b",
+  foreground: "#9da5b4",
+  border: "#181a1f",
+  field: "#2c313a",
+  accent: "#528bff",
+};
+
+// Nord's chrome is LIGHTER than its editor (nord1 over nord0), the opposite
+// of One Dark — exactly what a derived "darken the editor" rule would miss.
+const NORD_CHROME: ThemeChrome = {
+  background: "#3b4252",
+  foreground: "#d8dee9",
+  border: "#434c5e",
+  field: "#434c5e",
+  accent: "#88c0d0",
+};
+
+// GitHub light's chrome, as before.
+const PAPER_CHROME: ThemeChrome = {
+  background: "#f6f8fa",
+  foreground: "#57606a",
+  border: "#d0d7de",
+  field: "#ffffff",
+  accent: "#0969da",
+};
+
+// Solarized: base2 for surfaces, base00 for text, base3 (the editor's own
+// background) for inputs — warm, like the editor, not GitHub's cool grey.
+const SOLARIZED_LIGHT_CHROME: ThemeChrome = {
+  background: "#eee8d5",
+  foreground: "#657b83",
+  border: "#d9d2bd",
+  field: "#fdf6e3",
+  accent: "#268bd2",
+};
 
 interface ThemePalette {
   background: string;
@@ -143,14 +203,33 @@ function buildTheme(palette: ThemePalette, dark: boolean): Extension {
 }
 
 export const THEMES: readonly ThemeDefinition[] = [
-  { id: THEME_ID.ONE_DARK, label: "One Dark", dark: true, extension: oneDark },
-  { id: THEME_ID.NORD, label: "Nord", dark: true, extension: buildTheme(NORD, true) },
-  { id: THEME_ID.PAPER, label: "Paper", dark: false, extension: buildTheme(PAPER, false) },
+  {
+    id: THEME_ID.ONE_DARK,
+    label: "One Dark",
+    dark: true,
+    extension: oneDark,
+    chrome: ONE_DARK_CHROME,
+  },
+  {
+    id: THEME_ID.NORD,
+    label: "Nord",
+    dark: true,
+    extension: buildTheme(NORD, true),
+    chrome: NORD_CHROME,
+  },
+  {
+    id: THEME_ID.PAPER,
+    label: "Paper",
+    dark: false,
+    extension: buildTheme(PAPER, false),
+    chrome: PAPER_CHROME,
+  },
   {
     id: THEME_ID.SOLARIZED_LIGHT,
     label: "Solarized Light",
     dark: false,
     extension: buildTheme(SOLARIZED_LIGHT, false),
+    chrome: SOLARIZED_LIGHT_CHROME,
   },
 ];
 

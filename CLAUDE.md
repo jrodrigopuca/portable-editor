@@ -36,7 +36,7 @@ La lógica pura (estado del documento, recientes, prefs, paths, indentación) vi
 | Estado del documento (`DocState`), dirty, decisión de cambio externo | `src/document.ts` (puro, con tests) |
 | Wrappers de `invoke`, ids del menú (`MENU_ACTION`) | `src/ipc.ts`                   |
 | Comportamiento del editor        | `src/editor.ts` (único que importa CodeMirror) |
-| Temas                            | `src/themes.ts` (agregar paleta + entrada en `THEMES`) |
+| Temas                            | `src/themes.ts` (agregar paleta + `ThemeChrome` + entrada en `THEMES`) |
 | IPC (comandos delgados), plugins, menú, eventos del OS | `src-tauri/src/lib.rs` |
 | Contrato de error de IO (Rust ↔ TS) | `src-tauri/src/io_error.rs` + `src/io-error.ts` (trampa #50) |
 | Escritura atómica, symlinks, mtime | `src-tauri/src/fs_ops.rs` (puro, `&Path`, testeado) |

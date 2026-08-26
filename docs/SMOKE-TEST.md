@@ -62,6 +62,7 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 ## Preferencias y sesión
 
 - [ ] Cambiar tema → cambia editor y status bar; sobrevive a reiniciar la app
+- [ ] Con Nord: la status bar es MÁS CLARA que el editor (azul-gris, no gris neutro); con Solarized Light: barra crema, no gris. `Mod+F` y el panel de atajos (`?`) siguen la misma paleta en los cuatro temas
 - [ ] `Mod+=` / `Mod+-` / `Mod+0` ajustan la fuente; sobrevive a reiniciar
 - [ ] `Alt+Z` y el botón Wrap conmutan el ajuste de línea; sobrevive a reiniciar
 - [ ] Dropdown "Recent" lista los últimos archivos y los abre

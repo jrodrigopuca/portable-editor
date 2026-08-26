@@ -7,6 +7,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 ### Agregado
 
+- Nord y Solarized Light tienen su propia status bar, panel de búsqueda y panel de atajos (colores de sus paletas oficiales); antes usaban los de One Dark y de Paper y se veían "pegados" (ver ROADMAP.md sección 11, pregunta abierta → resuelta).
 - Al elegir "Keep my changes" ante un cambio externo, la status bar muestra "(changed on disk)" y guardar pregunta antes de sobrescribir la versión del disco — antes el siguiente guardado la pisaba en silencio (ver ROADMAP.md sección 11, ítem 7).
 - El panel de atajos toma el foco al abrirse (Tab ya no escribe en el editor detrás) y lo devuelve al cerrar (ver ROADMAP.md sección 11, ítem 8).
 - Mientras se lee un archivo grande, la status bar muestra "Opening …" en vez de dejar el archivo anterior en pantalla sin aviso (ver ROADMAP.md sección 11, ítem 9).

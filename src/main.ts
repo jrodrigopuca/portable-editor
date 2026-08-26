@@ -740,7 +740,15 @@ function toggleWrap(): void {
 function applyTheme(id: string): void {
   const theme = themeById(id);
   editor.setTheme(theme.id);
+  // `data-dark` is only for what depends on luminance (the dirty dot); the
+  // chrome's identity comes from the theme's own tokens.
   document.body.dataset.dark = String(theme.dark);
+  const root = document.documentElement.style;
+  root.setProperty("--chrome-bg", theme.chrome.background);
+  root.setProperty("--chrome-fg", theme.chrome.foreground);
+  root.setProperty("--chrome-border", theme.chrome.border);
+  root.setProperty("--chrome-field", theme.chrome.field);
+  root.setProperty("--chrome-accent", theme.chrome.accent);
   safeSetItem(THEME_KEY, theme.id);
 }
 

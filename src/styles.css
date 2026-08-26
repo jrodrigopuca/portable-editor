@@ -2,6 +2,14 @@
   /* Single editor font: Consolas first, with per-platform equivalents */
   --editor-font: Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", "Liberation Mono", monospace;
   --editor-font-size: 14px;
+  /* Chrome colors: overwritten by applyTheme (main.ts) from the active
+     theme's ThemeChrome. These defaults are One Dark's, so the first paint
+     — before init() runs — already matches the default theme. */
+  --chrome-bg: #21252b;
+  --chrome-fg: #9da5b4;
+  --chrome-border: #181a1f;
+  --chrome-field: #2c313a;
+  --chrome-accent: #528bff;
 }
 
 * {
@@ -123,20 +131,17 @@ body[data-dark="false"] #file-dirty {
   display: none;
 }
 
-body[data-dark="true"] #statusbar {
-  background: #21252b;
-  color: #9da5b4;
-  border-color: #181a1f;
+/* Chrome colors come from the active theme (`--chrome-*`, set by
+   applyTheme in main.ts from ThemeChrome in themes.ts): one rule, four
+   themes, no per-theme CSS. */
+#statusbar {
+  background: var(--chrome-bg);
+  color: var(--chrome-fg);
+  border-color: var(--chrome-border);
 }
 
-body[data-dark="true"] #statusbar select option {
-  background: #21252b;
-}
-
-body[data-dark="false"] #statusbar {
-  background: #f6f8fa;
-  color: #57606a;
-  border-color: #d0d7de;
+#statusbar select option {
+  background: var(--chrome-bg);
 }
 
 /* CodeMirror's search/replace panel: app chrome, not editor content — styled
@@ -206,38 +211,21 @@ body[data-dark="false"] #statusbar {
   opacity: 1;
 }
 
-body[data-dark="true"] #editor .cm-panel.cm-search {
-  background: #21252b;
-  color: #9da5b4;
-  border-top: 1px solid #181a1f;
+#editor .cm-panel.cm-search {
+  background: var(--chrome-bg);
+  color: var(--chrome-fg);
+  border-top: 1px solid var(--chrome-border);
 }
 
-body[data-dark="true"] #editor .cm-textfield,
-body[data-dark="true"] #editor .cm-button {
-  background: #2c313a;
-  color: #9da5b4;
-  border: 1px solid #181a1f;
+#editor .cm-textfield,
+#editor .cm-button {
+  background: var(--chrome-field);
+  color: var(--chrome-fg);
+  border: 1px solid var(--chrome-border);
 }
 
-body[data-dark="true"] #editor .cm-textfield:focus {
-  outline-color: #528bff;
-}
-
-body[data-dark="false"] #editor .cm-panel.cm-search {
-  background: #f6f8fa;
-  color: #57606a;
-  border-top: 1px solid #d0d7de;
-}
-
-body[data-dark="false"] #editor .cm-textfield,
-body[data-dark="false"] #editor .cm-button {
-  background: #ffffff;
-  color: #24292f;
-  border: 1px solid #d0d7de;
-}
-
-body[data-dark="false"] #editor .cm-textfield:focus {
-  outline-color: #0969da;
+#editor .cm-textfield:focus {
+  outline-color: var(--chrome-accent);
 }
 
 #shortcuts-panel {
@@ -309,12 +297,7 @@ body[data-dark="false"] #editor .cm-textfield:focus {
   opacity: 1;
 }
 
-body[data-dark="true"] #shortcuts-content {
-  background: #21252b;
-  color: #9da5b4;
-}
-
-body[data-dark="false"] #shortcuts-content {
-  background: #ffffff;
-  color: #24292f;
+#shortcuts-content {
+  background: var(--chrome-bg);
+  color: var(--chrome-fg);
 }
