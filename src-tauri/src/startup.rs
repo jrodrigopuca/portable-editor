@@ -4,8 +4,7 @@
 //! `startup_file` command in `lib.rs` are thin wrappers over this.
 
 use serde::Serialize;
-use std::path::Path;
-use std::sync::atomic::AtomicBool;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// A path to open on startup or via "Open with...", plus whether it already
@@ -20,31 +19,59 @@ pub struct StartupTarget {
     pub extra_ignored: usize,
 }
 
-/// File received via the OS "Open with..." (macOS Opened event) before the
-/// frontend is ready to listen for it. Holds the full `StartupTarget` (not
-/// just the path) so `extra_ignored` survives the trip to `startup_file()`.
+/// A file handed to us by the OS (macOS `Opened` event) or by a second CLI
+/// invocation (single-instance callback) before the frontend is ready to
+/// listen for it, plus the readiness flag itself. Holds the full
+/// `StartupTarget` (not just the path) so `exists` and `extra_ignored`
+/// survive the trip to `startup_file()`.
 ///
 /// `frontend_ready` flips to `true` the first time `startup_file()` runs —
 /// from then on the frontend has its `open-file` listener registered and
-/// every later `Opened` event must be emitted directly, never stashed in
-/// `slot` (nobody would ever poll it again).
-pub struct PendingFile {
-    pub slot: Mutex<Option<StartupTarget>>,
-    pub frontend_ready: AtomicBool,
+/// every later target must be emitted directly, never stashed in `slot`
+/// (nobody would ever poll it again).
+///
+/// Both fields live under ONE mutex (`PendingFile`) so "take the slot and
+/// flip the flag" is a single critical section: a target arriving while
+/// `startup_file()` runs lands on exactly one side of it.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct PendingState {
+    pub slot: Option<StartupTarget>,
+    pub frontend_ready: bool,
 }
+
+/// Tauri-managed state wrapping `PendingState`. See there.
+#[derive(Default)]
+pub struct PendingFile(pub Mutex<PendingState>);
 
 impl PendingFile {
     pub fn new() -> Self {
-        Self {
-            slot: Mutex::new(None),
-            frontend_ready: AtomicBool::new(false),
-        }
+        Self::default()
     }
 }
 
-impl Default for PendingFile {
-    fn default() -> Self {
-        Self::new()
+/// A resolved path whose bytes aren't valid UTF-8, so it can't travel as a
+/// JSON string without corruption. Carries the lossy rendering for the
+/// error message only.
+#[derive(Debug, PartialEq, Eq)]
+pub struct NonUtf8Path(pub PathBuf);
+
+impl From<NonUtf8Path> for String {
+    fn from(err: NonUtf8Path) -> Self {
+        format!(
+            "{} isn't valid UTF-8; portable-editor can't open it",
+            err.0.to_string_lossy()
+        )
+    }
+}
+
+/// The path as a `String` if its bytes are valid UTF-8, else the typed
+/// error. The lossy alternative (`to_string_lossy`) is NOT an option here:
+/// U+FFFD in the path means `read_file` looks for a file that doesn't exist
+/// and reports "does not exist" for one that does.
+pub fn utf8_path(path: PathBuf) -> Result<String, NonUtf8Path> {
+    match path.to_str() {
+        Some(s) => Ok(s.to_owned()),
+        None => Err(NonUtf8Path(path)),
     }
 }
 
@@ -56,34 +83,38 @@ impl Default for PendingFile {
 ///
 /// `arg` is a `Path`, not a `&str`: argv on Linux is arbitrary bytes, and
 /// `std::env::args()` panics on a non-UTF-8 entry. Callers use `args_os()`
-/// and keep the raw bytes all the way here; only the RESULT is made lossy
-/// (`to_string_lossy`), because it has to travel as JSON.
-pub fn resolve_open_arg(base_dir: &Path, arg: &Path) -> Option<StartupTarget> {
+/// and keep the raw bytes all the way here. The RESULT has to travel as JSON,
+/// so it's checked with `utf8_path` — after resolving, not before: a valid
+/// UTF-8 argument can still canonicalize into a non-UTF-8 path (symlink
+/// into a directory with a raw-bytes name).
+///
+/// `Ok(None)` = nothing resolvable (an empty argument).
+pub fn resolve_open_arg(base_dir: &Path, arg: &Path) -> Result<Option<StartupTarget>, NonUtf8Path> {
     let candidate = base_dir.join(arg);
-    if let Ok(canon) = candidate.canonicalize() {
-        return Some(StartupTarget {
-            path: canon.to_string_lossy().into_owned(),
-            exists: true,
-            extra_ignored: 0,
-        });
-    }
-    let absolute = std::path::absolute(&candidate).ok()?;
-    Some(StartupTarget {
-        path: absolute.to_string_lossy().into_owned(),
-        exists: false,
+    let (resolved, exists) = match candidate.canonicalize() {
+        Ok(canon) => (canon, true),
+        Err(_) => match std::path::absolute(&candidate) {
+            Ok(absolute) => (absolute, false),
+            Err(_) => return Ok(None),
+        },
+    };
+    Ok(Some(StartupTarget {
+        path: utf8_path(resolved)?,
+        exists,
         extra_ignored: 0,
-    })
+    }))
 }
 
-/// Decides what to do with one `RunEvent::Opened` whose first file is
-/// `first` and which carried `extra_this_event` more files (dropped by
-/// design: portable-editor opens one file at a time, and `extra_ignored` is
-/// how the frontend tells the user instead of silently acting on the first).
+/// Decides what to do with one incoming `target` — from a macOS `Opened`
+/// event (`extra_ignored` = the other files of a multi-selection, dropped
+/// by design: portable-editor opens one file at a time, and the count is how
+/// the frontend tells the user) or from a second CLI invocation via
+/// single-instance (`exists` may be `false`).
 ///
 /// Returns `Some(target)` = emit `open-file` with it now; `None` = it was
-/// stashed into (or merged into) `pending`, don't emit. The decision hinges
-/// on `frontend_ready`, NOT on whether the slot is empty (docs/ARCHITECTURE.md
-/// trampa #32):
+/// stashed into (or merged into) `state.slot`, don't emit. The decision
+/// hinges on `state.frontend_ready`, NOT on whether the slot is empty
+/// (docs/ARCHITECTURE.md trampa #32):
 ///
 /// - ready: the frontend polled `startup_file()` long ago and will never
 ///   poll again, so stashing would swallow the file (a real regression).
@@ -92,33 +123,28 @@ pub fn resolve_open_arg(base_dir: &Path, arg: &Path) -> Option<StartupTarget> {
 ///   emit — the listener isn't registered yet, and emitting AND stashing
 ///   opened the same file twice when the event landed between `listen()`
 ///   and the poll.
-/// - not ready, slot occupied (a second event before the poll, e.g. two
-///   near-simultaneous double-clicks in Finder): keep the first target
-///   (first-come-first-served, same tiebreak as within one event) and fold
-///   this whole event's files into its `extra_ignored` so the count the user
-///   eventually sees isn't silently short.
-// Only the macOS `Opened` handler calls this; on Linux it's dead code outside
-// `cfg(test)`, and CI runs clippy with `-D warnings` there.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub fn merge_opened(
-    pending: &mut Option<StartupTarget>,
-    frontend_ready: bool,
-    first: String,
-    extra_this_event: usize,
-) -> Option<StartupTarget> {
-    let target = StartupTarget {
-        path: first,
-        exists: true,
-        extra_ignored: extra_this_event,
-    };
-    if frontend_ready {
+/// - not ready, slot occupied (a second target before the poll, e.g. two
+///   near-simultaneous double-clicks in Finder, or two quick CLI calls):
+///   keep the first target (first-come-first-served, same tiebreak as within
+///   one event) and fold this whole event's files into its `extra_ignored`
+///   so the count the user eventually sees isn't silently short.
+pub fn merge_opened(state: &mut PendingState, target: StartupTarget) -> Option<StartupTarget> {
+    if state.frontend_ready {
         return Some(target);
     }
-    match pending.as_mut() {
-        Some(existing) => existing.extra_ignored += 1 + extra_this_event,
-        None => *pending = Some(target),
+    match state.slot.as_mut() {
+        Some(existing) => existing.extra_ignored += 1 + target.extra_ignored,
+        None => state.slot = Some(target),
     }
     None
+}
+
+/// The `startup_file()` half of the handshake: takes whatever was stashed
+/// and marks the frontend ready, atomically with respect to `merge_opened`
+/// (both run under the same lock).
+pub fn take_pending(state: &mut PendingState) -> Option<StartupTarget> {
+    state.frontend_ready = true;
+    state.slot.take()
 }
 
 #[cfg(test)]
@@ -133,7 +159,9 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             std::fs::write(dir.path().join("a.txt"), b"").unwrap();
 
-            let target = resolve_open_arg(dir.path(), Path::new("a.txt")).unwrap();
+            let target = resolve_open_arg(dir.path(), Path::new("a.txt"))
+                .unwrap()
+                .unwrap();
 
             assert!(target.exists);
             assert_eq!(target.extra_ignored, 0);
@@ -148,7 +176,7 @@ mod tests {
             let file = other.path().join("b.txt");
             std::fs::write(&file, b"").unwrap();
 
-            let target = resolve_open_arg(dir.path(), &file).unwrap();
+            let target = resolve_open_arg(dir.path(), &file).unwrap().unwrap();
 
             assert!(target.exists);
             assert_eq!(Path::new(&target.path), file.canonicalize().unwrap());
@@ -160,7 +188,9 @@ mod tests {
             std::fs::create_dir(dir.path().join("sub")).unwrap();
             std::fs::write(dir.path().join("c.txt"), b"").unwrap();
 
-            let target = resolve_open_arg(dir.path(), Path::new("sub/../c.txt")).unwrap();
+            let target = resolve_open_arg(dir.path(), Path::new("sub/../c.txt"))
+                .unwrap()
+                .unwrap();
 
             assert!(target.exists);
             assert_eq!(
@@ -173,7 +203,9 @@ mod tests {
         fn nonexistent_relative_path_is_absolute_under_base_dir() {
             let dir = tempfile::tempdir().unwrap();
 
-            let target = resolve_open_arg(dir.path(), Path::new("new-notes.md")).unwrap();
+            let target = resolve_open_arg(dir.path(), Path::new("new-notes.md"))
+                .unwrap()
+                .unwrap();
 
             assert!(!target.exists);
             assert_eq!(target.extra_ignored, 0);
@@ -186,7 +218,9 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let wanted = dir.path().join("nope").join("x.txt");
 
-            let target = resolve_open_arg(Path::new("/unrelated"), &wanted).unwrap();
+            let target = resolve_open_arg(Path::new("/unrelated"), &wanted)
+                .unwrap()
+                .unwrap();
 
             assert!(!target.exists);
             assert_eq!(Path::new(&target.path), wanted);
@@ -198,27 +232,53 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             std::fs::write(dir.path().join("-notes.txt"), b"").unwrap();
 
-            let target = resolve_open_arg(dir.path(), Path::new("-notes.txt")).unwrap();
+            let target = resolve_open_arg(dir.path(), Path::new("-notes.txt"))
+                .unwrap()
+                .unwrap();
 
             assert!(target.exists);
             assert!(target.path.ends_with("-notes.txt"));
         }
 
         #[test]
-        fn non_utf8_filename_is_resolved_lossily_instead_of_panicking() {
-            // Linux argv is bytes; `std::env::args()` would panic on this.
-            // Not created on disk: APFS refuses non-UTF-8 names, so the
-            // nonexistent branch (`std::path::absolute`, no fs access) is
-            // the one that runs on both platforms.
+        fn non_utf8_filename_is_a_typed_error_not_a_lossy_target() {
+            // Linux argv is bytes; `std::env::args()` would panic on this,
+            // and a lossy target (U+FFFD in the path) made `read_file` report
+            // "does not exist" for a file that exists. Not created on disk:
+            // APFS refuses non-UTF-8 names, so the nonexistent branch
+            // (`std::path::absolute`, no fs access) runs on both platforms.
             use std::ffi::OsStr;
             use std::os::unix::ffi::OsStrExt;
             let dir = tempfile::tempdir().unwrap();
             let name = OsStr::from_bytes(b"caf\xe9.txt");
 
-            let target = resolve_open_arg(dir.path(), Path::new(name)).unwrap();
+            let err = resolve_open_arg(dir.path(), Path::new(name)).unwrap_err();
 
-            assert!(!target.exists);
-            assert!(target.path.ends_with("caf\u{FFFD}.txt"));
+            assert_eq!(err, NonUtf8Path(dir.path().join(name)));
+            let message = String::from(err);
+            assert!(message.contains("caf\u{FFFD}.txt"), "{message}");
+            assert!(message.ends_with("isn't valid UTF-8; portable-editor can't open it"));
+        }
+    }
+
+    mod utf8_path {
+        use super::*;
+
+        #[test]
+        fn valid_utf8_passes_through_unchanged() {
+            assert_eq!(
+                utf8_path(PathBuf::from("/tmp/ñandú.txt")),
+                Ok("/tmp/ñandú.txt".to_string())
+            );
+        }
+
+        #[test]
+        fn invalid_utf8_is_rejected_with_the_original_bytes() {
+            use std::ffi::OsStr;
+            use std::os::unix::ffi::OsStrExt;
+            let raw = PathBuf::from(OsStr::from_bytes(b"/tmp/\xff.txt"));
+
+            assert_eq!(utf8_path(raw.clone()), Err(NonUtf8Path(raw)));
         }
     }
 
@@ -233,77 +293,145 @@ mod tests {
             }
         }
 
+        fn state(slot: Option<StartupTarget>, frontend_ready: bool) -> PendingState {
+            PendingState {
+                slot,
+                frontend_ready,
+            }
+        }
+
         #[test]
         fn running_app_always_emits_and_never_touches_the_slot() {
-            let mut pending = None;
+            let mut st = state(None, true);
 
-            let emitted = merge_opened(&mut pending, true, "/a.txt".into(), 0);
+            let emitted = merge_opened(&mut st, target("/a.txt", 0));
 
             assert_eq!(emitted, Some(target("/a.txt", 0)));
-            assert_eq!(pending, None);
+            assert_eq!(st, state(None, true));
         }
 
         #[test]
         fn running_app_emits_even_if_the_slot_is_occupied() {
             // Trampa #32: deciding by "is the slot empty?" swallowed the
             // second Open With while the app was running.
-            let mut pending = Some(target("/stale.txt", 0));
+            let mut st = state(Some(target("/stale.txt", 0)), true);
 
-            let emitted = merge_opened(&mut pending, true, "/b.txt".into(), 0);
+            let emitted = merge_opened(&mut st, target("/b.txt", 0));
 
             assert_eq!(emitted, Some(target("/b.txt", 0)));
-            assert_eq!(pending, Some(target("/stale.txt", 0)));
+            assert_eq!(st.slot, Some(target("/stale.txt", 0)));
         }
 
         #[test]
         fn cold_start_stashes_without_emitting() {
-            let mut pending = None;
+            let mut st = state(None, false);
 
-            let emitted = merge_opened(&mut pending, false, "/a.txt".into(), 0);
+            let emitted = merge_opened(&mut st, target("/a.txt", 0));
 
             assert_eq!(emitted, None);
-            assert_eq!(pending, Some(target("/a.txt", 0)));
+            assert_eq!(st, state(Some(target("/a.txt", 0)), false));
         }
 
         #[test]
         fn cold_start_second_event_keeps_the_first_and_counts_the_new_one() {
-            let mut pending = Some(target("/first.txt", 0));
+            let mut st = state(Some(target("/first.txt", 0)), false);
 
-            let emitted = merge_opened(&mut pending, false, "/second.txt".into(), 0);
+            let emitted = merge_opened(&mut st, target("/second.txt", 0));
 
             assert_eq!(emitted, None);
-            assert_eq!(pending, Some(target("/first.txt", 1)));
+            assert_eq!(st.slot, Some(target("/first.txt", 1)));
+        }
+
+        #[test]
+        fn cold_start_keeps_exists_false_from_a_cli_target() {
+            // Single-instance path: `portable-editor new.md` during a cold
+            // start must survive as "create a new file here", not be
+            // rewritten as an existing one.
+            let mut st = state(None, false);
+            let cli = StartupTarget {
+                path: "/new.md".into(),
+                exists: false,
+                extra_ignored: 0,
+            };
+
+            merge_opened(&mut st, cli.clone());
+
+            assert_eq!(st.slot, Some(cli));
         }
 
         #[test]
         fn multi_select_count_is_carried_when_emitting() {
-            let mut pending = None;
+            let mut st = state(None, true);
 
-            let emitted = merge_opened(&mut pending, true, "/a.txt".into(), 3);
+            let emitted = merge_opened(&mut st, target("/a.txt", 3));
 
             assert_eq!(emitted, Some(target("/a.txt", 3)));
         }
 
         #[test]
         fn multi_select_count_is_carried_when_stashing() {
-            let mut pending = None;
+            let mut st = state(None, false);
 
-            merge_opened(&mut pending, false, "/a.txt".into(), 2);
+            merge_opened(&mut st, target("/a.txt", 2));
 
-            assert_eq!(pending, Some(target("/a.txt", 2)));
+            assert_eq!(st.slot, Some(target("/a.txt", 2)));
         }
 
         #[test]
         fn multi_select_counts_fold_across_cold_start_events() {
             // Event 1: 3 files (1 kept + 2 dropped). Event 2: 4 files, all
             // dropped. Event 3: 1 file, dropped. Total dropped = 2 + 4 + 1.
-            let mut pending = None;
+            let mut st = state(None, false);
 
-            merge_opened(&mut pending, false, "/a.txt".into(), 2);
-            merge_opened(&mut pending, false, "/b.txt".into(), 3);
-            merge_opened(&mut pending, false, "/c.txt".into(), 0);
+            merge_opened(&mut st, target("/a.txt", 2));
+            merge_opened(&mut st, target("/b.txt", 3));
+            merge_opened(&mut st, target("/c.txt", 0));
 
-            assert_eq!(pending, Some(target("/a.txt", 7)));
+            assert_eq!(st.slot, Some(target("/a.txt", 7)));
+        }
+    }
+
+    mod take_pending {
+        use super::*;
+
+        fn target(path: &str) -> StartupTarget {
+            StartupTarget {
+                path: path.to_string(),
+                exists: true,
+                extra_ignored: 0,
+            }
+        }
+
+        #[test]
+        fn takes_the_slot_and_flips_ready_together() {
+            let mut st = PendingState {
+                slot: Some(target("/a.txt")),
+                frontend_ready: false,
+            };
+
+            let taken = take_pending(&mut st);
+
+            assert_eq!(taken, Some(target("/a.txt")));
+            assert_eq!(
+                st,
+                PendingState {
+                    slot: None,
+                    frontend_ready: true
+                }
+            );
+        }
+
+        #[test]
+        fn a_target_after_take_is_emitted_not_stashed() {
+            // The handshake end to end: whatever arrives after the poll can
+            // never be swallowed by the slot.
+            let mut st = PendingState::default();
+            assert_eq!(take_pending(&mut st), None);
+
+            let emitted = merge_opened(&mut st, target("/late.txt"));
+
+            assert_eq!(emitted, Some(target("/late.txt")));
+            assert_eq!(st.slot, None);
         }
     }
 }

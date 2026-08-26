@@ -1,7 +1,6 @@
 use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
 
 mod fs_ops;
 mod io_error;
@@ -10,6 +9,11 @@ mod startup;
 mod text_io;
 use io_error::IoError;
 use startup::{resolve_open_arg, PendingFile, StartupTarget};
+
+/// Event name for a file the OS/CLI handed us that can't be opened before
+/// `read_file` ever runs (today: a non-UTF-8 path). Payload: a plain `String`
+/// message, ready to show as-is.
+const OPEN_FILE_ERROR_EVENT: &str = "open-file-error";
 use text_io::DecodedFile;
 
 /// Reads the whole file, detecting its encoding (BOM, else UTF-8, else
@@ -21,6 +25,12 @@ use text_io::DecodedFile;
 /// `async` (here and in the other IO commands) so Tauri runs it on its async
 /// runtime instead of the main thread: a sync command blocks the UI thread
 /// for the whole read — up to 100 MB — and every `save_recovery` tick.
+///
+/// Also returns the file's mtime, taken from the SAME metadata call — i.e.
+/// before the bytes are read. If the file changes between that stat and the
+/// read, the contents are newer than the recorded mtime and the next poll
+/// reloads (harmlessly, same content). The other order (read, then stat)
+/// would record a change as "already seen" and never detect it.
 #[tauri::command]
 async fn read_file(path: String) -> Result<DecodedFile, IoError> {
     let meta = std::fs::metadata(&path)?;
@@ -30,8 +40,9 @@ async fn read_file(path: String) -> Result<DecodedFile, IoError> {
             limit: text_io::MAX_FILE_SIZE_BYTES,
         });
     }
+    let mtime = fs_ops::mtime_of(&meta)?;
     let bytes = std::fs::read(&path)?;
-    Ok(text_io::decode_file(&bytes))
+    Ok(text_io::decode_file(&bytes, mtime))
 }
 
 /// Atomic save (temp + fsync + rename, through symlinks, permissions
@@ -122,7 +133,7 @@ fn sweep_stale_recovery(dir: &Path) {
 /// or when the user explicitly discards unsaved changes. Best-effort: a
 /// leftover recovery file just means a stale prompt next time, not data loss.
 #[tauri::command]
-fn clear_recovery(app: tauri::AppHandle, path: String) -> Result<(), IoError> {
+async fn clear_recovery(app: tauri::AppHandle, path: String) -> Result<(), IoError> {
     let dir = recovery_dir(&app)?;
     let _ = std::fs::remove_file(dir.join(recovery::recovery_key(&path)));
     Ok(())
@@ -144,8 +155,11 @@ fn signal_ready() {
 }
 
 /// Mtime in milliseconds; the frontend polls it to detect external changes.
+/// `async` like every other IO command: this runs every 2 s and on each
+/// focus, and a stat on a hung NFS/SMB mount or an iCloud-evicted file would
+/// otherwise freeze the UI.
 #[tauri::command]
-fn file_mtime(path: String) -> Result<u64, IoError> {
+async fn file_mtime(path: String) -> Result<u64, IoError> {
     Ok(fs_ops::mtime_ms(Path::new(&path))?)
 }
 
@@ -286,22 +300,46 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
 /// (always an existing file — the OS wouldn't hand us one that isn't),
 /// otherwise the first CLI argument (`portable-editor file.txt`), which may
 /// not exist yet.
+///
+/// `Err(String)` = there IS a file but it can't be opened (non-UTF-8 path);
+/// the message is user-facing. Sync on purpose: it's instantaneous (a
+/// `canonicalize` at most) and runs exactly once.
 #[tauri::command]
-fn startup_file(pending: tauri::State<PendingFile>) -> Option<StartupTarget> {
-    // Take the slot BEFORE flipping the flag: an `Opened` event racing this
-    // call either lands in the slot (and is returned here) or sees the flag
-    // and emits — never both, never neither.
-    let stashed = pending.slot.lock().unwrap().take();
-    pending.frontend_ready.store(true, Ordering::SeqCst);
+fn startup_file(pending: tauri::State<PendingFile>) -> Result<Option<StartupTarget>, String> {
+    // Take the slot and flip the flag under ONE lock: a target racing this
+    // call (macOS `Opened`, or a second CLI invocation via single-instance)
+    // either lands in the slot (and is returned here) or sees the flag and
+    // is emitted — never both, never neither.
+    let stashed = startup::take_pending(&mut pending.0.lock().unwrap());
     if let Some(target) = stashed {
-        return Some(target);
+        return Ok(Some(target));
     }
     // `args_os`, not `args`: argv is raw bytes on Linux and `args()` panics
     // on a non-UTF-8 entry (trampa: a file named in Latin-1 would crash the
     // app at startup instead of opening).
-    let arg = std::env::args_os().nth(1)?;
+    let Some(arg) = std::env::args_os().nth(1) else {
+        return Ok(None);
+    };
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    resolve_open_arg(&cwd, Path::new(&arg))
+    resolve_open_arg(&cwd, Path::new(&arg)).map_err(String::from)
+}
+
+/// Shared tail of the two "a file arrived while running" entry points
+/// (single-instance callback and macOS `Opened`): stash-or-emit is decided
+/// by `startup::merge_opened` under the state lock, so a target racing
+/// `startup_file()` lands on exactly one side of the handshake.
+fn deliver_target(app: &tauri::AppHandle, target: StartupTarget) {
+    use tauri::{Emitter, Manager};
+    let to_emit = {
+        let pending = app.state::<PendingFile>();
+        let mut state = pending.0.lock().unwrap();
+        startup::merge_opened(&mut state, target)
+    };
+    if let Some(target) = to_emit {
+        // App already running: emit and let openFileQueue serialize it
+        // (trampa #23).
+        let _ = app.emit("open-file", target);
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -363,6 +401,11 @@ fn install_cli_command() -> Result<String, String> {
     do shell script "mkdir -p /usr/local/bin && ln -sf " & quoted form of exePath & " " & quoted form of targetPath with administrator privileges
 end run"#;
 
+        // `.status()` blocks the main thread (this command is sync) while
+        // the native admin-password sheet is up — INTENTIONAL: the editor
+        // must not accept input behind a modal privilege prompt, and the
+        // prompt itself is the only thing the user can interact with. Don't
+        // make this `async` without replacing the block with a real modal.
         let status = std::process::Command::new("osascript")
             .arg("-e")
             .arg(script)
@@ -391,8 +434,16 @@ pub fn run() {
                 let _ = window.set_focus();
             }
             if let Some(arg) = args.into_iter().nth(1) {
-                if let Some(target) = resolve_open_arg(Path::new(&cwd), Path::new(&arg)) {
-                    let _ = app.emit("open-file", target);
+                // Same stash-or-emit handshake as macOS `Opened` (trampa
+                // #32/#38): a second CLI call during a cold start, before
+                // the frontend's `open-file` listener exists, must land in
+                // the slot instead of being emitted into the void.
+                match resolve_open_arg(Path::new(&cwd), Path::new(&arg)) {
+                    Ok(Some(target)) => deliver_target(app, target),
+                    Ok(None) => {}
+                    Err(err) => {
+                        let _ = app.emit(OPEN_FILE_ERROR_EVENT, String::from(err));
+                    }
                 }
             }
         }))
@@ -425,7 +476,7 @@ pub fn run() {
             // event, both at startup and while the app is already running.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
-                use tauri::{Emitter, Manager};
+                use tauri::Emitter;
                 // Finder's "Open With" on a multi-selection hands us every
                 // URL in one event — portable-editor opens one file at a
                 // time by design, so the rest are dropped, but the frontend
@@ -433,26 +484,23 @@ pub fn run() {
                 // silently acting on the first one.
                 let mut paths = urls.into_iter().filter_map(|u| u.to_file_path().ok());
                 if let Some(path) = paths.next() {
-                    let extra_this_event = paths.count();
-                    let pending_state = app.state::<PendingFile>();
+                    let extra_ignored = paths.count();
                     // Emit vs stash vs merge is decided by `frontend_ready`
-                    // (trampa #32) — the whole decision lives in
-                    // `startup::merge_opened`, under test. Hold the slot
-                    // lock across the check so an `Opened` racing
-                    // `startup_file()` lands on exactly one side of it.
-                    let to_emit = {
-                        let mut pending = pending_state.slot.lock().unwrap();
-                        startup::merge_opened(
-                            &mut pending,
-                            pending_state.frontend_ready.load(Ordering::SeqCst),
-                            path.to_string_lossy().into_owned(),
-                            extra_this_event,
-                        )
-                    };
-                    if let Some(target) = to_emit {
-                        // App already running: emit and let openFileQueue
-                        // serialize it (trampa #23).
-                        let _ = app.emit("open-file", target);
+                    // (trampa #32) inside `deliver_target`. Files from the
+                    // OS always exist — Finder wouldn't hand us one that
+                    // doesn't.
+                    match startup::utf8_path(path) {
+                        Ok(path) => deliver_target(
+                            app,
+                            StartupTarget {
+                                path,
+                                exists: true,
+                                extra_ignored,
+                            },
+                        ),
+                        Err(err) => {
+                            let _ = app.emit(OPEN_FILE_ERROR_EVENT, String::from(err));
+                        }
                     }
                 }
             }

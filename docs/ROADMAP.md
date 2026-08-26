@@ -10,7 +10,7 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 | Robustez                 | 🟢     | Guardado atómico, cambios externos, encodings, EOL, archivos enormes y archivo borrado — todos ✔ (Fase 3 completa) |
 | Arquitectura             | 🟢     | Capas claras, IPC mínimo, módulos con responsabilidad única              |
 | Documentación            | 🟢     | README, ARCHITECTURE, RELEASE, CLAUDE.md — por encima de la media        |
-| Tests automatizados      | 🟡     | Lógica pura con Vitest (63 tests) y `cargo test` (51); sin E2E todavía (smoke test manual)   |
+| Tests automatizados      | 🟡     | Lógica pura con Vitest (67 tests) y `cargo test` (56); sin E2E todavía (smoke test manual)   |
 | CI de calidad            | 🟢     | Biome, tsc, Vitest, rustfmt y clippy en cada push/PR                     |
 | Lint/format              | 🟢     | Biome (frontend) + rustfmt/clippy (backend)                              |
 | Distribución             | 🟢     | Íconos propios ✔; release v0.1.0 publicado y firmado/notarizado (macOS arm64+x64, .deb, .rpm, .AppImage) |
@@ -194,7 +194,35 @@ Cada ítem se tacha (`~~...~~ ✅ fecha`) al resolverse, con la trampa/test que 
 
 **Qué NO hacer (los tres revisores coincidieron):** event bus, store/reducer, state machine, "componentes", abstracción genérica de file-watcher, separar open/save en módulos distintos (comparten `doc` + `editor`; se termina en context objects o en un ciclo). Un descriptor de preferencias `{ key, parse, apply }` recién a la CUARTA preferencia, no antes. El producto es mini a propósito y la arquitectura lo respeta: eso es una virtud.
 
-## 9. Fase 5 — Distribución y alcance
+## 9. Segunda revisión: terminar la idea (2026-08-25, sobre `c89608f`)
+
+Revisión de segunda opinión (`architect` + `qa`) sobre los fixes de §8, hallazgos verificados a mano contra el código. Veredicto: los fixes fueron el diseño correcto (`doc.gen` como identidad, `document.ts` como seam real, `write_file` devolviendo mtime, `replaceText` anotado, `lib.rs` como wiring; identidad mini intacta). Lo que falta es **terminar la idea**: `gen` se aplicó a los dos flujos que tenían bugs, pero el resto de la superficie async sigue confiando en una disciplina ("capturá `gen` antes de cada `await`") — la misma categoría de invariante que el `refreshMtime()` recién eliminado. La regla de raíz es otra: **todo flujo de usuario que cambia de documento pasa por la misma cola serial que ya usa `open-file`**; entonces `gen` queda solo para los flujos de fondo (poll, autosave, carga de lenguaje), que son tres y no crecen. Mismo formato tachable que §7/§8.
+
+**Bloque A — Fixes puntuales (chicos; el 1 es urgente)**
+
+1. ~~**Ventana de pérdida de datos abierta por el ítem 16 de §8**~~ ✅ 2026-08-25 — `afterWrite(written, current)` en `document.ts` (3 tests); `writeTo()` hace `Object.assign(doc, afterWrite(contents, editor.getText()))` y solo limpia el recovery si quedó limpio. Trampa #51.
+2. ~~**Ítem 3 de §8 arreglado para el caso secuencial, no el racy**~~ ✅ 2026-08-25 — `autosaveTick()` captura `gen`; `if (isStale(gen) || !doc.dirty) clearRecovery(path)`. Trampa #52.
+3. ~~**Segunda instancia CLI durante el arranque frío sigue perdiendo el archivo (ambas plataformas)**~~ ✅ 2026-08-25 — `PendingState { slot, frontend_ready }` bajo un solo `Mutex`; `take_pending` (flag + take en la misma sección crítica) y `merge_opened(&mut PendingState, StartupTarget)`; `deliver_target` en `lib.rs` usado por single-instance (con `resolve_open_arg`, `exists: false` sobrevive) y por `Opened`. `AtomicBool` eliminado. 10 tests en `startup.rs` (incluye handshake punta a punta y `exists: false` en cold start). Trampas #32 y #38 reescritas.
+4. ~~**Path no-UTF-8 en Linux: ya no hace panic, pero el archivo tampoco abre y el mensaje miente**~~ ✅ 2026-08-25 — `utf8_path` sobre el path RESUELTO (un symlink puede canonicalizar a bytes crudos aunque el arg sea UTF-8) → `NonUtf8Path`; `startup_file -> Result<Option<StartupTarget>, String>`; evento nuevo `open-file-error` (payload string) emitido por single-instance y `Opened`, encolado en `openFileQueue` por `main.ts`. Test reescrito (`non_utf8_filename_is_a_typed_error_not_a_lossy_target`) + 2 de `utf8_path`. Trampa #46 reescrita.
+5. ~~**`forgetRecent` en TODO error de lectura**~~ ✅ 2026-08-25 — `isGone(err)` (`isIoError && kind === NOT_FOUND`) guarda los dos `forgetRecent`. Trampa #54.
+6. ~~**`writeTo()` resetea `encoding` pero no `mixedEol`**~~ ✅ 2026-08-25 — cubierto por `afterWrite` (`mixedEol: false`). Trampa #51.
+7. ~~**Cerrar la ventana con "Discard" no limpia el recovery**~~ ✅ 2026-08-25 — `onCloseRequested` hace `await clearRecovery(doc.path)` tras confirmar el descarte. Trampa #53.
+8. ~~**`file_mtime` y `clear_recovery` siguen sync (main thread)**~~ ✅ 2026-08-25 — `file_mtime` y `clear_recovery` → `async fn`; regla única documentada en trampa #45 (actualizada) junto con las excepciones deliberadas (`startup_file`, `signal_ready`, `install_cli_command`).
+9. ~~**Ciclo type-only `document.ts` ↔ `ipc.ts`**~~ ✅ 2026-08-25 — `DecodedFile` movido a `document.ts`; `ipc.ts` lo importa. Trampa #55.
+10. ~~**`saveFileAs()` es el único sitio que no usa `becomeDocument()`**~~ ✅ 2026-08-25 — `saveFileAs()` → `becomeDocument({ ...doc, path, missing: false })`; `afterFileLoaded()` ya no toca identidad. Trampa #55.
+11. ~~**Fricción menor**~~ ✅ 2026-08-25 — `not_found` en SAVE dice "Could not save X: its folder no longer exists." (test); re-export de `IoError` en `ipc.ts` borrado; `http://ipc.localhost` fuera del CSP (`csp` y `devCsp`); comentario sobre el bloqueo deliberado de `osascript` en `install_cli_command`.
+
+**Bloque B — El cambio de diseño (lo que hace que A no se repita)**
+
+12. ~~**Cola serial para TODO flujo de usuario que cambia de documento**~~ ✅ 2026-08-25 — `exclusive(task)` / `documentQueue` en `main.ts`; entradas públicas `newFile`/`openFile`/`saveFile`/`saveFileAs` encolan y llaman a `runX`; `init()`, el listener `open-file` y `saveFile → runSaveFileAs` usan las `run*` (deadlock si no). El poll encola RELOAD y ASK con `isStale(gen)` al entrar; `reloadFromDisk()` perdió sus dos guardas de `gen` (ya no puede ser raceado). Invariante #11 de `CLAUDE.md` reescrito; trampas #23, #37, #38 reescritas; trampa #56 nueva.
+13. ~~**`read_file` devuelve el mtime**~~ ✅ 2026-08-25 — `DecodedFile.mtime` tomado del MISMO `metadata` del chequeo de tamaño (stat antes del read: un cambio en el medio se detecta en el próximo poll en vez de quedar "ya visto"); `fs_ops::mtime_of(&Metadata)`; `fromDisk()` lo lleva a `doc`; `refreshMtime()` eliminado; `afterFileLoaded()` es síncrono salvo la carga de lenguaje. Test en `document.test.ts`. Trampa #44 reescrita.
+14. ~~**`writeTo()` captura `gen`**~~ ✅ 2026-08-25 — cubierto por la cola: `writeTo()` solo corre desde `runSaveFile`/`runSaveFileAs`, que están encolados — el documento no puede cambiar durante el write. No se agregó `gen` (hubiera sido la disciplina que el ítem 12 elimina).
+
+**Verificado en esta ronda y que se sostiene (no requiere acción):** los flujos de §8 ítems 1-5, 12 y 19 trazados de punta a punta; undo tras reload restaura el texto pre-reload y marca dirty (verificado con un test descartable sobre `EditorState` + `history` — vale la pena convertirlo en test real de `editor.ts`, es el único listener sin cobertura); `fromDisk` no pisa `path/mtime/missing/cursor/gen`; `From<tauri::Error>` → `Other` es correcto; `isIoError` es load-bearing (los comandos no-IO siguen rechazando strings); `AppHandle::path()` fuera del main thread es seguro; guardar sin editar un archivo CR-only NO lo convierte (`saveFile` no escribe si `!dirty`), así que el "(mixed)" es verdad en ese momento; el barrido de recovery en `setup` puede borrar un snapshot >30 días que el mismo arranque iba a ofrecer — por diseño (trampa #49).
+
+**Sin verificar (ambos revisores):** GUI/diálogos en cualquier plataforma, CSP en bundle real, handler `Opened` en runtime, workflows de CI en GitHub.
+
+## 10. Fase 5 — Distribución y alcance
 
 En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, descargas):
 
@@ -206,7 +234,7 @@ En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, de
 
 ---
 
-## 10. Reglas de decisión transversales
+## 11. Reglas de decisión transversales
 
 - **Robustez > features.** Un bug de pérdida de datos vale más que diez features nuevas.
 - **Presupuesto de complejidad:** cada dependencia nueva (npm o crate) se justifica por escrito en el PR. El proyecto se mantiene entendible por UNA persona en una tarde.

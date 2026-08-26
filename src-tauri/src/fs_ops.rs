@@ -81,8 +81,14 @@ pub fn tmp_path(target: &Path) -> PathBuf {
 
 /// Mtime in milliseconds since the Unix epoch.
 pub fn mtime_ms(path: &Path) -> io::Result<u64> {
-    let modified = std::fs::metadata(path)?.modified()?;
-    let since_epoch = modified
+    mtime_of(&std::fs::metadata(path)?)
+}
+
+/// Mtime (ms) of an already-fetched `Metadata` — for callers that must not
+/// stat twice (`read_file`: the size check and the mtime come from one stat).
+pub fn mtime_of(meta: &std::fs::Metadata) -> io::Result<u64> {
+    let since_epoch = meta
+        .modified()?
         .duration_since(UNIX_EPOCH)
         .map_err(io::Error::other)?;
     Ok(since_epoch.as_millis() as u64)

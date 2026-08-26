@@ -3,10 +3,10 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
+  afterWrite,
   type DocState,
   docFromFile,
   docFromRecovery,
-  ENCODING_UTF8,
   EXTERNAL_CHANGE,
   emptyDoc,
   externalChangeDecision,
@@ -15,7 +15,7 @@ import {
 } from "./document";
 import { createEditor, PLAIN_TEXT_LABEL } from "./editor";
 import { indentLabel, indentUnitString, nextIndentPreset } from "./indent";
-import { errorMessage, IO_OPERATION } from "./io-error";
+import { errorMessage, IO_ERROR_KIND, IO_OPERATION, isIoError } from "./io-error";
 import * as ipc from "./ipc";
 import { isMenuAction, MENU_ACTION, type StartupTarget } from "./ipc";
 import { basename } from "./paths";
@@ -286,20 +286,48 @@ async function checkRecovery(path: string, diskContents: string): Promise<string
   return recovered;
 }
 
-/** Shared tail of every "a real file is now on screen" flow. `dirty` is
- * left alone: docFromFile() already decided it (a recovered buffer starts
- * dirty), and writeTo() cleared it before Save As gets here. */
+/** Shared tail of every "a real file is now on screen" flow. It doesn't
+ * touch `doc`'s identity fields: every caller already went through
+ * becomeDocument() with the right path/dirty/missing. */
 async function afterFileLoaded(path: string): Promise<void> {
-  doc.path = path;
-  doc.missing = false;
   updateStatus();
   rememberRecent(path);
   renderRecent();
   await applyLanguage();
-  await refreshMtime();
 }
 
-async function newFile(): Promise<void> {
+// ---------- The document queue ----------
+//
+// Every flow that can change WHICH document is on screen, or that puts a
+// question to the user about it, runs here one at a time: New, Open (menu,
+// button, drop, Recent, CLI, "Open with..."), Save, Save As, session restore,
+// and the poll's reload. Tauri dialogs are async — the event loop keeps
+// running while a sheet is up — so without this, "discard A?" could be
+// answered after a drop already replaced A with B, and the consent would be
+// applied to the wrong document. Serializing collapses that whole class:
+// inside a queued flow the document can't change under you, so the flow
+// doesn't need to re-check anything after its awaits. The generation counter
+// (`doc.gen`) is only for the background flows that can't wait their turn:
+// the mtime poll's stat and the autosave tick.
+let documentQueue: Promise<unknown> = Promise.resolve();
+
+/** Runs `task` after every previously queued flow has settled (pass or fail). */
+function exclusive<T>(task: () => Promise<T>): Promise<T> {
+  const run = documentQueue.then(task, task);
+  documentQueue = run.catch(() => {}); // one failed flow must not block the next
+  return run;
+}
+
+// Public entry points. Anything already INSIDE a queued flow (init, the
+// open-file listener, saveFile → saveFileAs) calls the run* functions
+// directly — queueing from inside the queue would wait on itself forever.
+const newFile = (): Promise<void> => exclusive(runNewFile);
+const openFile = (presetPath?: string, external = false): Promise<void> =>
+  exclusive(() => runOpenFile(presetPath, external));
+const saveFile = (): Promise<void> => exclusive(runSaveFile);
+const saveFileAs = (): Promise<void> => exclusive(runSaveFileAs);
+
+async function runNewFile(): Promise<void> {
   if (!(await confirmDiscard())) return;
   void clearRecovery(doc.path);
   syncRecentCursor();
@@ -317,7 +345,7 @@ async function newFile(): Promise<void> {
  * path, so Save writes straight there instead of prompting Save As. Matches
  * vim/nano/code: opening a nonexistent path creates it, doesn't error out.
  */
-async function openNewFileAt(path: string, external = false): Promise<void> {
+async function runOpenNewFileAt(path: string, external = false): Promise<void> {
   if (!(await confirmDiscard())) return;
   if (external && !(await confirmExternalReplace(path))) return;
   void clearRecovery(doc.path);
@@ -331,7 +359,7 @@ async function openNewFileAt(path: string, external = false): Promise<void> {
   editor.focus();
 }
 
-async function openFile(presetPath?: string, external = false): Promise<void> {
+async function runOpenFile(presetPath?: string, external = false): Promise<void> {
   if (!(await confirmDiscard())) return;
   if (external && presetPath !== undefined && !(await confirmExternalReplace(presetPath))) return;
   const path = presetPath ?? (await openDialog({ multiple: false, title: "Open file" }));
@@ -354,8 +382,14 @@ async function openFile(presetPath?: string, external = false): Promise<void> {
     editor.focus();
   } catch (err) {
     await message(errorMessage(err, path, IO_OPERATION.READ), { title: APP_NAME, kind: "error" });
-    forgetRecent(path);
+    if (isGone(err)) forgetRecent(path);
   }
+}
+
+/** Only a file that no longer exists deserves eviction from Recent — a
+ * too-large log or a not-yet-mounted volume is still worth remembering. */
+function isGone(err: unknown): boolean {
+  return isIoError(err) && err.kind === IO_ERROR_KIND.NOT_FOUND;
 }
 
 /** Reopens the last file from the previous session, at the same position. */
@@ -375,15 +409,15 @@ async function restoreSession(): Promise<void> {
       title: APP_NAME,
       kind: "error",
     });
-    forgetRecent(last.path);
+    if (isGone(err)) forgetRecent(last.path);
   }
 }
 
-async function saveFile(): Promise<void> {
+async function runSaveFile(): Promise<void> {
   // No known-good path to overwrite: either untitled, or the file vanished
   // from under us (deleted/renamed) — let the user pick where it goes.
   if (doc.path === null || doc.missing) {
-    await saveFileAs();
+    await runSaveFileAs();
     return;
   }
   // Nothing changed: skip the write entirely. Matters most for a file that
@@ -393,7 +427,7 @@ async function saveFile(): Promise<void> {
   if (await writeTo(doc.path)) updateStatus();
 }
 
-async function saveFileAs(): Promise<void> {
+async function runSaveFileAs(): Promise<void> {
   const path = await saveDialog({ title: "Save as", defaultPath: doc.path ?? undefined });
   if (path === null) return;
   const previousPath = doc.path;
@@ -402,7 +436,9 @@ async function saveFileAs(): Promise<void> {
   // autosaveTick while this doc was dirty) would otherwise linger and offer
   // "recover?" content the user already saved elsewhere.
   if (previousPath !== path) void clearRecovery(previousPath);
-  beginDocument(); // same buffer, different identity: in-flight polls on the old path must drop out
+  // Same buffer, different identity: in-flight polls on the old path must
+  // drop out, and the file is known to exist at its new path.
+  becomeDocument({ ...doc, path, missing: false });
   await afterFileLoaded(path);
 }
 
@@ -410,14 +446,13 @@ async function writeTo(path: string): Promise<boolean> {
   try {
     const contents = editor.getText();
     const mtime = await ipc.writeFile(path, contents, doc.eol);
-    // Recorded in the same tick as dirty=false: a poll between "written"
-    // and "mtime known" used to see our own save as an external change.
+    // Recorded in the same tick as the dirty decision: a poll between
+    // "written" and "mtime known" used to see our own save as an external
+    // change. The buffer may have moved while the write was in flight —
+    // afterWrite() keeps the doc dirty in that case (see document.ts).
     doc.mtime = mtime;
-    doc.dirty = false;
-    doc.savedText = contents;
-    // Save policy: always UTF-8 on disk, regardless of the source encoding.
-    doc.encoding = ENCODING_UTF8;
-    void clearRecovery(path);
+    Object.assign(doc, afterWrite(contents, editor.getText()));
+    if (!doc.dirty) void clearRecovery(path);
     return true;
   } catch (err) {
     await message(errorMessage(err, path, IO_OPERATION.SAVE), { title: APP_NAME, kind: "error" });
@@ -426,18 +461,6 @@ async function writeTo(path: string): Promise<boolean> {
 }
 
 // ---------- External changes (mtime polling) ----------
-
-async function refreshMtime(): Promise<void> {
-  if (doc.path === null) {
-    doc.mtime = null;
-    return;
-  }
-  try {
-    doc.mtime = await ipc.fileMtime(doc.path);
-  } catch {
-    doc.mtime = null;
-  }
-}
 
 /** Shared prompt for "disk changed, you have unsaved changes" — asked both
  * up front (checkExternalChange, already dirty) and after the fact
@@ -449,15 +472,12 @@ async function confirmReloadDiscard(): Promise<boolean> {
   });
 }
 
+/** Always called from inside the document queue: the document can't change
+ * identity during its awaits, so there's no generation check here. */
 async function reloadFromDisk(): Promise<void> {
   if (doc.path === null) return;
-  const gen = doc.gen;
   const dirtyBeforeRead = doc.dirty;
   const file = await ipc.readFile(doc.path);
-  // The user opened another file while this read was in flight: what we
-  // hold is the OLD document's contents. Writing it into the new buffer
-  // would be silent data corruption — drop it, the new doc has its own poll.
-  if (isStale(gen)) return;
   // The read above is the only await in here — if the user typed while it
   // was in flight, doc.dirty flips to true DURING this call, with no caller
   // aware of it. Silently overwriting would discard that edit with nothing
@@ -466,7 +486,6 @@ async function reloadFromDisk(): Promise<void> {
   // confirmed discarding (checkExternalChange's dirty branch), doc.dirty
   // was already true going in, so this is a no-op for that path.
   if (!dirtyBeforeRead && doc.dirty && !(await confirmReloadDiscard())) return;
-  if (isStale(gen)) return; // the dialog above is a second gap
   // replaceText() is tagged as a reload, so onDocChanged stays quiet and the
   // dirty flag is decided only here: same identity, fresh contents, clean.
   editor.replaceText(file.contents);
@@ -488,16 +507,16 @@ const AUTOSAVE_INTERVAL_MS = 10_000;
 async function autosaveTick(): Promise<void> {
   if (doc.path === null || !doc.dirty) return;
   const path = doc.path;
+  const gen = doc.gen;
   try {
     await ipc.saveRecovery(path, editor.getText());
-    // A real save can complete while the write above was in flight —
-    // writeTo() already clears the recovery file for `path`, but that clear
-    // can finish BEFORE this (now-stale) write lands, leaving a pre-save
-    // snapshot sitting there right after a successful save. If the doc is
-    // no longer dirty for this same path, a save beat us to it: clean up
-    // after ourselves instead of leaving a misleading "recover this?" offer
-    // pointing at older content than what's already safely on disk.
-    if (!doc.dirty && doc.path === path) void clearRecovery(path);
+    // A real save, a Save As or a discard can complete while the write above
+    // was in flight — each already cleared the recovery file for `path`, but
+    // that clear can land BEFORE this (now-stale) write does, leaving a
+    // snapshot that would offer "recover this?" content already saved (or
+    // deliberately thrown away). Unless THIS same document is still dirty,
+    // what we just wrote is garbage: clean up after ourselves.
+    if (isStale(gen) || !doc.dirty) void clearRecovery(path);
   } catch {
     // Best-effort safety net; a failed autosave shouldn't interrupt editing.
   }
@@ -536,11 +555,19 @@ async function checkExternalChange(): Promise<void> {
         return;
       case EXTERNAL_CHANGE.RELOAD:
         doc.mtime = mtime; // recorded: don't prompt again for the same change
-        await reloadFromDisk();
+        await exclusive(async () => {
+          if (!isStale(gen)) await reloadFromDisk();
+        });
         return;
       case EXTERNAL_CHANGE.ASK:
         doc.mtime = mtime;
-        if (await confirmReloadDiscard()) await reloadFromDisk();
+        // Queued: if a "discard A?" dialog is already up, this waits for it
+        // (and re-checks that A is still on screen) instead of stacking a
+        // second, contradictory question on top.
+        await exclusive(async () => {
+          if (isStale(gen)) return;
+          if (await confirmReloadDiscard()) await reloadFromDisk();
+        });
         return;
     }
   } catch {
@@ -714,7 +741,15 @@ window.addEventListener(
 
 void appWindow.onCloseRequested(async (event) => {
   syncRecentCursor();
-  if (doc.dirty && !(await confirmDiscard())) event.preventDefault();
+  if (!doc.dirty) return;
+  if (!(await confirmDiscard())) {
+    event.preventDefault();
+    return;
+  }
+  // The user threw these edits away on purpose: without this, the next
+  // launch would claim "didn't close cleanly" and offer to recover them.
+  // Awaited, so the window doesn't go down with the delete still in flight.
+  await clearRecovery(doc.path);
 });
 
 el.btnNew.addEventListener("click", () => void newFile());
@@ -753,14 +788,21 @@ void getCurrentWebview().onDragDropEvent((event) => {
 // catch it later, so it'd just discard a file the user explicitly asked to
 // open. Chain them through a serial queue instead — same order they arrived
 // in, one fully settled before the next starts.
-let openFileQueue: Promise<void> = Promise.resolve();
-
 void listen<StartupTarget>("open-file", (event) => {
   const { path, exists, extra_ignored } = event.payload;
-  openFileQueue = openFileQueue
-    .catch(() => {}) // one failed open must not block the next
-    .then(() => (exists ? openFile(path, true) : openNewFileAt(path, true)))
-    .then(() => notifyExtraFilesIgnored(extra_ignored));
+  void exclusive(async () => {
+    await (exists ? runOpenFile(path, true) : runOpenNewFileAt(path, true));
+    await notifyExtraFilesIgnored(extra_ignored);
+  });
+});
+
+// Rust could not even build a target for a file it was asked to open (today:
+// a path that isn't valid UTF-8 — see startup.rs). Same two producers as
+// open-file; the payload is the finished sentence.
+void listen<string>("open-file-error", (event) => {
+  void exclusive(async () => {
+    await message(event.payload, { title: APP_NAME, kind: "error" });
+  });
 });
 
 // Native File menu clicks/accelerators (see src-tauri/src/lib.rs build_menu)
@@ -812,7 +854,9 @@ async function init(): Promise<void> {
   try {
     const startup = await ipc.startupFile();
     if (startup !== null) {
-      await (startup.exists ? openFile(startup.path, true) : openNewFileAt(startup.path, true));
+      await (startup.exists
+        ? runOpenFile(startup.path, true)
+        : runOpenNewFileAt(startup.path, true));
       await notifyExtraFilesIgnored(startup.extra_ignored);
     } else {
       updateStatus();
@@ -826,9 +870,7 @@ async function init(): Promise<void> {
   void ipc.signalReady();
 }
 
-// init() opens/restores a document outside openFileQueue, and the open-file
-// listener above is live from module evaluation — so a single-instance CLI
-// invocation landing during startup would otherwise run concurrently with
-// restoreSession(). Seeding the queue with init() makes startup the first
-// item in the same serial chain: every open-file event waits its turn.
-openFileQueue = init();
+// init() is the first item in the document queue: the open-file listener is
+// live from module evaluation, so a CLI invocation landing during startup
+// waits for restoreSession() instead of running concurrently with it.
+void exclusive(init);

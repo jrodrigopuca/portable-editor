@@ -7,6 +7,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 ### Agregado
 
+- Las acciones sobre el documento (Nuevo, Abrir, Guardar, Guardar como, abrir desde terminal o Finder, recarga por cambio externo) ahora se ejecutan de a una: un diálogo de confirmación ya no puede quedar respondido sobre un archivo distinto del que preguntó, ni apilarse una segunda pregunta contradictoria encima (ver ROADMAP.md sección 9, ítem 12).
+- Abrir dos archivos en rápida sucesión ya no puede dejar al segundo con la fecha de modificación del primero (lo que disparaba recargas o avisos de "cambió en disco" falsos); y un cambio externo que aterriza justo mientras se lee el archivo ya no pasa desapercibido (ver ROADMAP.md sección 9, ítem 13).
+- Tipear mientras un guardado está en curso (disco lento, archivo grande) ya no marca esos caracteres como guardados: el punto de "sin guardar" se mantiene y cerrar la ventana vuelve a preguntar (ver ROADMAP.md sección 9, ítem 1).
+- Invocar `portable-editor otro.txt` desde una terminal mientras la app todavía está arrancando ya no pierde ese archivo en silencio (ver ROADMAP.md sección 9, ítem 3).
+- (Linux) Un archivo cuyo nombre no es UTF-8 válido ahora muestra un error claro ("isn't valid UTF-8") en vez de "does not exist" (ver ROADMAP.md sección 9, ítem 4).
+- Un archivo demasiado grande, sin permiso o en un volumen no montado ya no desaparece de Recientes por eso; solo un archivo que realmente no existe se olvida (ver ROADMAP.md sección 9, ítem 5).
+- Tras guardar un archivo que mezclaba fines de línea, la status bar deja de mostrar "(mixed)" (el disco ya es uniforme) (ver ROADMAP.md sección 9, ítem 6).
+- Cerrar la ventana descartando cambios ya no hace que el próximo arranque ofrezca "recuperar" esos mismos cambios (ver ROADMAP.md sección 9, ítem 7).
+- Un Save As o un descarte justo mientras el autosave escribía ya no puede dejar un snapshot viejo que ofrezca "recuperar" contenido ya guardado (ver ROADMAP.md sección 9, ítem 2).
+- El chequeo de cambios externos (cada 2 s y al enfocar la ventana) ya no puede congelar la interfaz sobre un volumen de red colgado (ver ROADMAP.md sección 9, ítem 8).
+- Al fallar un guardado porque la carpeta desapareció, el mensaje lo dice ("its folder no longer exists") en vez de "does not exist" (ver ROADMAP.md sección 9, ítem 11).
 - Disponible por Homebrew (macOS): `brew tap jrodrigopuca/tap && brew install --cask portable-editor`. Tap en [`jrodrigopuca/homebrew-tap`](https://github.com/jrodrigopuca/homebrew-tap).
 - Aviso al abrir un archivo que no parece texto (imagen, ejecutable, etc.): pregunta antes de cargarlo, en vez de "decodificarlo" en silencio como Windows-1252 y arriesgar corromperlo al guardar.
 - Indicador "(mixed)" junto a LF/CRLF en la status bar cuando un archivo mezcla ambos estilos de fin de línea.

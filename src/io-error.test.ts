@@ -21,9 +21,12 @@ describe("isIoError", () => {
 });
 
 describe("describeIoError", () => {
-  it("not_found names the path", () => {
+  it("not_found names the path on read, and blames the folder on save", () => {
     expect(describeIoError({ kind: IO_ERROR_KIND.NOT_FOUND }, "/a/b.txt", IO_OPERATION.READ)).toBe(
       "/a/b.txt does not exist.",
+    );
+    expect(describeIoError({ kind: IO_ERROR_KIND.NOT_FOUND }, "/a/b.txt", IO_OPERATION.SAVE)).toBe(
+      "Could not save /a/b.txt: its folder no longer exists.",
     );
   });
 

@@ -75,7 +75,11 @@ function formatMb(bytes: number): string {
 export function describeIoError(err: IoError, path: string, operation: IoOperation): string {
   switch (err.kind) {
     case IO_ERROR_KIND.NOT_FOUND:
-      return `${path} does not exist.`;
+      // On a save the FILE not existing is expected (that's what saving
+      // does) — what's gone is its folder.
+      return operation === IO_OPERATION.SAVE
+        ? `Could not save ${path}: its folder no longer exists.`
+        : `${path} does not exist.`;
     case IO_ERROR_KIND.PERMISSION_DENIED:
       return `Permission denied: ${path}.`;
     case IO_ERROR_KIND.TOO_LARGE:

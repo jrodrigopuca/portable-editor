@@ -4,22 +4,12 @@
 // whichever flow happened to call `invoke` by hand.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { Eol } from "./document";
+import type { DecodedFile, Eol } from "./document";
 
 // File-IO commands (read_file, write_file, file_mtime, *_recovery) reject
 // with a typed `IoError` object, not a string — see src/io-error.ts for the
-// shape, the guard and the user-facing wording. Other commands still reject
-// with plain strings.
-export { type IoError, isIoError } from "./io-error";
-
-/** Shape returned by the `read_file` command; see `src-tauri/src/text_io.rs`. */
-export interface DecodedFile {
-  contents: string;
-  encoding: string;
-  eol: Eol;
-  mixed_eol: boolean;
-  likely_binary: boolean;
-}
+// shape, the guard and the user-facing wording (import from there, not from
+// here). Other commands still reject with plain strings.
 
 /** Shape of `startup_file`'s return and the `open-file` event payload. */
 export interface StartupTarget {

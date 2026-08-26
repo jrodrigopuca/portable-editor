@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { DecodedFile } from "./document";
 import {
+  afterWrite,
   type DocState,
   docFromFile,
   docFromRecovery,
@@ -12,7 +14,6 @@ import {
   nextDirty,
 } from "./document";
 import { INDENT_TYPE } from "./indent";
-import type { DecodedFile } from "./ipc";
 
 const file = (contents: string, overrides: Partial<DecodedFile> = {}): DecodedFile => ({
   contents,
@@ -20,6 +21,7 @@ const file = (contents: string, overrides: Partial<DecodedFile> = {}): DecodedFi
   eol: EOL.LF,
   mixed_eol: false,
   likely_binary: false,
+  mtime: 1000,
   ...overrides,
 });
 
@@ -64,7 +66,10 @@ describe("docFromFile", () => {
     expect(doc.eol).toBe(EOL.CRLF);
     expect(doc.mixedEol).toBe(true);
     expect(doc.missing).toBe(false);
-    expect(doc.mtime).toBeNull();
+  });
+
+  it("records the mtime the read was stat'ed with", () => {
+    expect(docFromFile("/a.txt", file("x", { mtime: 4242 }), "x").mtime).toBe(4242);
   });
 
   it("is clean when the buffer matches the disk", () => {
@@ -88,7 +93,7 @@ describe("docFromFile", () => {
 describe("fromDisk", () => {
   it("only carries the disk-derived fields (identity and mtime stay with the caller)", () => {
     expect(Object.keys(fromDisk(file("x"), "x")).sort()).toEqual(
-      ["dirty", "encoding", "eol", "indent", "mixedEol", "savedText"].sort(),
+      ["dirty", "mtime", "encoding", "eol", "indent", "mixedEol", "savedText"].sort(),
     );
   });
 });
@@ -167,5 +172,27 @@ describe("externalChangeDecision", () => {
     expect(externalChangeDecision(300, docWith({ mtime: 100, missing: true, dirty: true }))).toBe(
       EXTERNAL_CHANGE.ASK,
     );
+  });
+});
+
+describe("afterWrite", () => {
+  it("clean when the buffer didn't move during the write", () => {
+    const next = afterWrite("abc", "abc");
+    expect(next.dirty).toBe(false);
+    expect(next.savedText).toBe("abc");
+  });
+
+  it("keeps the doc dirty when keystrokes landed while the write was in flight", () => {
+    // Regression: with async IO commands the user can type during a save;
+    // marking the doc clean here made Close skip its confirm and lost them.
+    const next = afterWrite("abc", "abcd");
+    expect(next.dirty).toBe(true);
+    expect(next.savedText).toBe("abc"); // the undo baseline is what's on disk, not the buffer
+  });
+
+  it("disk is UTF-8 and single-style EOL after a save", () => {
+    const next = afterWrite("x", "x");
+    expect(next.encoding).toBe(ENCODING_UTF8);
+    expect(next.mixedEol).toBe(false);
   });
 });

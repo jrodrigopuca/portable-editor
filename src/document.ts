@@ -5,12 +5,27 @@
 // resetting 5-8 fields by hand in different orders.
 
 import { detectIndent, type IndentInfo } from "./indent";
-import type { DecodedFile } from "./ipc";
 
 export const EOL = { LF: "LF", CRLF: "CRLF" } as const;
 export type Eol = (typeof EOL)[keyof typeof EOL];
 
 export const ENCODING_UTF8 = "UTF-8";
+
+/**
+ * What the disk says about a file, as returned by the `read_file` command
+ * (see `src-tauri/src/text_io.rs`). Lives here, not in ipc.ts, because it's
+ * document knowledge that ipc.ts merely transports — the pure module must
+ * not depend on the IPC one.
+ */
+export interface DecodedFile {
+  contents: string;
+  encoding: string;
+  eol: Eol;
+  mixed_eol: boolean;
+  likely_binary: boolean;
+  /** Mtime (ms) stat'ed BEFORE the read, so a change landing mid-read is detected by the next poll rather than swallowed. */
+  mtime: number;
+}
 
 export interface CursorPos {
   line: number;
@@ -51,7 +66,7 @@ export interface DocState {
 /** The fields that describe what's on disk, as opposed to the document's identity. */
 export type DocFileFields = Pick<
   DocState,
-  "dirty" | "encoding" | "eol" | "mixedEol" | "indent" | "savedText"
+  "dirty" | "mtime" | "encoding" | "eol" | "mixedEol" | "indent" | "savedText"
 >;
 
 /** A blank buffer. `path` is non-null for a CLI/"Open with..." target that doesn't exist on disk yet. */
@@ -81,11 +96,34 @@ export function emptyDoc(path: string | null): DocState {
 export function fromDisk(file: DecodedFile, contents: string): DocFileFields {
   return {
     dirty: contents !== file.contents,
+    mtime: file.mtime,
     encoding: file.encoding,
     eol: file.eol,
     mixedEol: file.mixed_eol,
     indent: detectIndent(contents),
     savedText: file.contents,
+  };
+}
+
+/**
+ * What a completed save contributes to the document. `written` is the text
+ * handed to `write_file`; `current` is the buffer NOW, after the await. IO
+ * commands run off the main thread, so the user can keep typing while the
+ * write is in flight — those keystrokes are not on disk, and marking the
+ * document clean would make Close skip its confirm and autosave skip its
+ * tick: silent data loss. The undo baseline is what was written, not what's
+ * on screen. Disk is always UTF-8 and single-style EOL after a save, so
+ * showing the original encoding or "(mixed)" afterwards would be lying.
+ */
+export function afterWrite(
+  written: string,
+  current: string,
+): Pick<DocState, "dirty" | "savedText" | "encoding" | "mixedEol"> {
+  return {
+    dirty: current !== written,
+    savedText: written,
+    encoding: ENCODING_UTF8,
+    mixedEol: false,
   };
 }
 

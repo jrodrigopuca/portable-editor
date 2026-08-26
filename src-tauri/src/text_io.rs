@@ -19,9 +19,12 @@ pub struct DecodedFile {
     pub eol: String,
     pub mixed_eol: bool,
     pub likely_binary: bool,
+    /// Mtime (ms) as of BEFORE the bytes were read — see `read_file` for why
+    /// that order matters. `decode_file` doesn't know it; the command fills it.
+    pub mtime: u64,
 }
 
-pub fn decode_file(bytes: &[u8]) -> DecodedFile {
+pub fn decode_file(bytes: &[u8], mtime: u64) -> DecodedFile {
     let (text, encoding) = decode_bytes(bytes);
     let (eol, mixed_eol) = detect_eol(&text);
     DecodedFile {
@@ -30,6 +33,7 @@ pub fn decode_file(bytes: &[u8]) -> DecodedFile {
         eol: eol.to_string(),
         mixed_eol,
         likely_binary: looks_binary(bytes),
+        mtime,
     }
 }
 
@@ -122,7 +126,7 @@ mod tests {
 
     #[test]
     fn decodes_plain_utf8_with_no_bom() {
-        let decoded = decode_file("héllo\n".as_bytes());
+        let decoded = decode_file("héllo\n".as_bytes(), 0);
         assert_eq!(decoded.contents, "héllo\n");
         assert_eq!(decoded.encoding, "UTF-8");
         assert_eq!(decoded.eol, "LF");
@@ -132,7 +136,7 @@ mod tests {
     fn strips_utf8_bom() {
         let mut bytes = vec![0xEF, 0xBB, 0xBF];
         bytes.extend_from_slice("hola".as_bytes());
-        let decoded = decode_file(&bytes);
+        let decoded = decode_file(&bytes, 0);
         assert_eq!(decoded.contents, "hola");
         assert_eq!(decoded.encoding, "UTF-8");
     }
@@ -141,27 +145,27 @@ mod tests {
     fn falls_back_to_windows_1252_for_invalid_utf8() {
         // 0xE9 alone is not valid UTF-8, but is "é" in Windows-1252.
         let bytes = vec![b'c', b'a', b'f', 0xE9];
-        let decoded = decode_file(&bytes);
+        let decoded = decode_file(&bytes, 0);
         assert_eq!(decoded.contents, "café");
         assert_eq!(decoded.encoding, "Windows-1252");
     }
 
     #[test]
     fn detects_and_normalizes_crlf() {
-        let decoded = decode_file("line1\r\nline2\r\n".as_bytes());
+        let decoded = decode_file("line1\r\nline2\r\n".as_bytes(), 0);
         assert_eq!(decoded.contents, "line1\nline2\n");
         assert_eq!(decoded.eol, "CRLF");
     }
 
     #[test]
     fn detects_lf_as_default() {
-        let decoded = decode_file("line1\nline2\n".as_bytes());
+        let decoded = decode_file("line1\nline2\n".as_bytes(), 0);
         assert_eq!(decoded.eol, "LF");
     }
 
     #[test]
     fn empty_file_defaults_to_lf() {
-        let decoded = decode_file(b"");
+        let decoded = decode_file(b"", 0);
         assert_eq!(decoded.eol, "LF");
     }
 
@@ -181,23 +185,23 @@ mod tests {
     fn mostly_lf_with_one_crlf_line_stays_lf_and_flags_mixed() {
         // Regression: this used to flip to CRLF on the presence of a single
         // CRLF line, rewriting every other line's ending on save.
-        let decoded = decode_file("line1\nline2\nline3\r\n".as_bytes());
+        let decoded = decode_file("line1\nline2\nline3\r\n".as_bytes(), 0);
         assert_eq!(decoded.eol, "LF");
         assert!(decoded.mixed_eol);
     }
 
     #[test]
     fn mostly_crlf_with_one_lf_line_stays_crlf_and_flags_mixed() {
-        let decoded = decode_file("line1\r\nline2\r\nline3\n".as_bytes());
+        let decoded = decode_file("line1\r\nline2\r\nline3\n".as_bytes(), 0);
         assert_eq!(decoded.eol, "CRLF");
         assert!(decoded.mixed_eol);
     }
 
     #[test]
     fn uniform_eol_is_never_flagged_mixed() {
-        assert!(!decode_file("line1\nline2\n".as_bytes()).mixed_eol);
-        assert!(!decode_file("line1\r\nline2\r\n".as_bytes()).mixed_eol);
-        assert!(!decode_file(b"").mixed_eol);
+        assert!(!decode_file("line1\nline2\n".as_bytes(), 0).mixed_eol);
+        assert!(!decode_file("line1\r\nline2\r\n".as_bytes(), 0).mixed_eol);
+        assert!(!decode_file(b"", 0).mixed_eol);
     }
 
     #[test]
@@ -205,7 +209,7 @@ mod tests {
         // Classic Mac endings are normalized to LF and never written back
         // (save policy is LF/CRLF only), so `mixed` is the only warning the
         // user gets that saving rewrites every line ending.
-        let decoded = decode_file("line1\rline2\r".as_bytes());
+        let decoded = decode_file("line1\rline2\r".as_bytes(), 0);
         assert_eq!(decoded.contents, "line1\nline2\n");
         assert_eq!(decoded.eol, "LF");
         assert!(decoded.mixed_eol);
@@ -213,7 +217,7 @@ mod tests {
 
     #[test]
     fn cr_mixed_with_lf_flags_mixed_and_keeps_lf() {
-        let decoded = decode_file("line1\nline2\rline3\n".as_bytes());
+        let decoded = decode_file("line1\nline2\rline3\n".as_bytes(), 0);
         assert_eq!(decoded.contents, "line1\nline2\nline3\n");
         assert_eq!(decoded.eol, "LF");
         assert!(decoded.mixed_eol);
@@ -221,14 +225,14 @@ mod tests {
 
     #[test]
     fn cr_mixed_with_crlf_flags_mixed_and_keeps_crlf() {
-        let decoded = decode_file("line1\r\nline2\rline3\r\n".as_bytes());
+        let decoded = decode_file("line1\r\nline2\rline3\r\n".as_bytes(), 0);
         assert_eq!(decoded.eol, "CRLF");
         assert!(decoded.mixed_eol);
     }
 
     #[test]
     fn plain_text_is_not_likely_binary() {
-        let decoded = decode_file("hello\nworld\n".as_bytes());
+        let decoded = decode_file("hello\nworld\n".as_bytes(), 0);
         assert!(!decoded.likely_binary);
     }
 
@@ -237,7 +241,7 @@ mod tests {
         // A truncated PNG signature — not valid UTF-8, decodes via the
         // Windows-1252 fallback without error, but the NUL byte gives it away.
         let bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00];
-        let decoded = decode_file(&bytes);
+        let decoded = decode_file(&bytes, 0);
         assert!(decoded.likely_binary);
     }
 }
