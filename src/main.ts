@@ -20,6 +20,7 @@ import * as ipc from "./ipc";
 import { isMenuAction, MENU_ACTION, type StartupTarget } from "./ipc";
 import { basename } from "./paths";
 import { clampFontSize, FONT_DEFAULT, parseFontSize } from "./prefs";
+import { createSerialQueue } from "./queue";
 import {
   addRecent,
   parseRecent,
@@ -109,11 +110,6 @@ async function notifyExtraFilesIgnored(count: number): Promise<void> {
 // the pure helpers in document.ts produce the next value it gets patched with.
 const doc: DocState = emptyDoc(null);
 
-/** Marks the buffer as a different document: every in-flight async flow that captured the previous generation must drop its result. */
-function beginDocument(): void {
-  doc.gen += 1;
-}
-
 /** True if the buffer stopped being the document `gen` was captured from. */
 function isStale(gen: number): boolean {
   return gen !== doc.gen;
@@ -121,13 +117,14 @@ function isStale(gen: number): boolean {
 
 /**
  * The buffer becomes `next` — path, disk fields, cursor, all at once — and
- * every in-flight async flow drops out (see beginDocument). Synchronous by
+ * every in-flight background flow drops out (`gen` moves). Synchronous by
  * design: callers must have finished their last await before this (invariant
  * #11 in CLAUDE.md).
  */
 function becomeDocument(next: DocState): void {
-  beginDocument();
-  Object.assign(doc, next, { gen: doc.gen });
+  // Bumping `gen` and replacing the fields is ONE step: every in-flight
+  // background flow that captured the old generation drops its result.
+  Object.assign(doc, next, { gen: doc.gen + 1 });
 }
 let fontSize = parseFontSize(safeGetItem(FONT_KEY));
 let wrapOn = safeGetItem(WRAP_KEY) === "true";
@@ -313,23 +310,30 @@ async function afterFileLoaded(path: string): Promise<void> {
 // doesn't need to re-check anything after its awaits. The generation counter
 // (`doc.gen`) is only for the background flows that can't wait their turn:
 // the mtime poll's stat and the autosave tick.
-let documentQueue: Promise<unknown> = Promise.resolve();
-
-/** Runs `task` after every previously queued flow has settled (pass or fail). */
-function exclusive<T>(task: () => Promise<T>): Promise<T> {
-  const run = documentQueue.then(task, task);
-  documentQueue = run.catch(() => {}); // one failed flow must not block the next
-  return run;
-}
+const { exclusive } = createSerialQueue();
 
 // Public entry points. Anything already INSIDE a queued flow (init, the
 // open-file listener, saveFile → saveFileAs) calls the run* functions
 // directly — queueing from inside the queue would wait on itself forever.
 const newFile = (): Promise<void> => exclusive(runNewFile);
 const openFile = (presetPath?: string, external = false): Promise<void> =>
-  exclusive(() => runOpenFile(presetPath, external));
+  presetPath === undefined
+    ? withPicker(runOpenFile)
+    : exclusive(() => runOpenFile(presetPath, external));
 const saveFile = (): Promise<void> => exclusive(runSaveFile);
-const saveFileAs = (): Promise<void> => exclusive(runSaveFileAs);
+const saveFileAs = (): Promise<void> => withPicker(runSaveFileAs);
+
+// Flows that open a native file picker coalesce instead of queueing: five
+// quick Mod+O presses mean "open a file", not "show me five dialogs in a
+// row". While one is pending (queued or on screen) the rest are dropped.
+let pickerPending = false;
+function withPicker(task: () => Promise<void>): Promise<void> {
+  if (pickerPending) return Promise.resolve();
+  pickerPending = true;
+  return exclusive(task).finally(() => {
+    pickerPending = false;
+  });
+}
 
 async function runNewFile(): Promise<void> {
   if (!(await confirmDiscard())) return;
@@ -524,7 +528,11 @@ async function reloadFromDisk(): Promise<void> {
   if (!dirtyBeforeRead && doc.dirty && !(await confirmReloadDiscard())) return;
   // replaceText() is tagged as a reload, so onDocChanged stays quiet and the
   // dirty flag is decided only here: same identity, fresh contents, clean.
-  editor.replaceText(file.contents);
+  // Skipped when the disk already matches the buffer (a change that landed
+  // between read_file's stat and its read, or our own save): replacing text
+  // with itself still costs the user a ghost undo step, collapses a
+  // multi-cursor selection and scrolls back to the cursor.
+  if (file.contents !== editor.getText()) editor.replaceText(file.contents);
   Object.assign(doc, fromDisk(file, file.contents));
   applyIndent();
   updateStatus();
@@ -775,16 +783,23 @@ window.addEventListener(
 );
 
 void appWindow.onCloseRequested(async (event) => {
-  syncRecentCursor();
-  if (!doc.dirty) return;
-  if (!(await confirmDiscard())) {
-    event.preventDefault();
-    return;
-  }
-  // The user threw these edits away on purpose: without this, the next
-  // launch would claim "didn't close cleanly" and offer to recover them.
-  // Awaited, so the window doesn't go down with the delete still in flight.
-  await clearRecovery(doc.path);
+  // Queued like every other question about the document: a Save still in
+  // flight finishes first (so `dirty` is the truth, not a snapshot from
+  // mid-write), and a "discard?" already on screen isn't doubled. Tauri
+  // awaits this handler before destroying the window, so preventDefault()
+  // still works after the wait.
+  await exclusive(async () => {
+    syncRecentCursor();
+    if (!doc.dirty) return;
+    if (!(await confirmDiscard())) {
+      event.preventDefault();
+      return;
+    }
+    // The user threw these edits away on purpose: without this, the next
+    // launch would claim "didn't close cleanly" and offer to recover them.
+    // Awaited, so the window doesn't go down with the delete still in flight.
+    await clearRecovery(doc.path);
+  });
 });
 
 el.btnNew.addEventListener("click", () => void newFile());

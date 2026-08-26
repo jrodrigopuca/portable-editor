@@ -26,7 +26,7 @@ npm run tauri dev      # correr la app (compila Rust; la lanza el dev, no el age
 npm run tauri build    # bundle de producción
 ```
 
-La lógica pura (estado del documento, recientes, prefs, paths, indentación) vive en módulos sin DOM ni Tauri (`src/document.ts`, `src/recent.ts`, `src/prefs.ts`, `src/paths.ts`, `src/indent.ts`) con tests al lado (`*.test.ts`). Lógica nueva testeable va ahí, no dentro de `main.ts`. Todo `invoke` pasa por los wrappers tipados de `src/ipc.ts` (único módulo que importa `@tauri-apps/api/core`); un comando nuevo en Rust = un wrapper nuevo ahí.
+La lógica pura (estado del documento, recientes, prefs, paths, indentación) vive en módulos sin DOM ni Tauri (`src/document.ts`, `src/queue.ts`, `src/recent.ts`, `src/prefs.ts`, `src/paths.ts`, `src/indent.ts`) con tests al lado (`*.test.ts`). Lógica nueva testeable va ahí, no dentro de `main.ts`. Todo `invoke` pasa por los wrappers tipados de `src/ipc.ts` (único módulo que importa `@tauri-apps/api/core`); un comando nuevo en Rust = un wrapper nuevo ahí.
 
 ## Mapa rápido
 

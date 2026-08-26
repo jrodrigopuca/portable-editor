@@ -1,7 +1,7 @@
 import { indentWithTab } from "@codemirror/commands";
 import { indentUnit, LanguageDescription } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { basename } from "./paths";
@@ -35,7 +35,23 @@ export const PLAIN_TEXT_LABEL = "Plain text";
  * Checked with `isUserEvent`, which matches by dot-separated prefix — no core
  * event starts with "reload", so this can't collide with "input"/"delete"/etc.
  */
-const RELOAD_USER_EVENT = "reload";
+export const RELOAD_USER_EVENT = "reload";
+
+/**
+ * The transaction that swaps the whole buffer for `text` while keeping undo
+ * history and (clamped) cursor: what a reload from disk dispatches. Pure, so
+ * its two promises — history survives, the tag is there — are testable
+ * without a DOM.
+ */
+export function reloadTransaction(state: EditorState, text: string): TransactionSpec {
+  const head = state.selection.main.head;
+  return {
+    changes: { from: 0, to: state.doc.length, insert: text },
+    selection: { anchor: Math.min(head, text.length) },
+    scrollIntoView: true,
+    userEvent: RELOAD_USER_EVENT,
+  };
+}
 
 // Single font family and size controlled via CSS variables (see styles.css)
 const baseTheme = EditorView.theme({
@@ -104,13 +120,7 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks): E
       // Unlike setText, keeps cursor and undo history: meant for reloading
       // the same file after it changed on disk. Tagged so the update
       // listener doesn't treat it as a user edit (see RELOAD_USER_EVENT).
-      const head = view.state.selection.main.head;
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: text },
-        selection: { anchor: Math.min(head, text.length) },
-        scrollIntoView: true,
-        userEvent: RELOAD_USER_EVENT,
-      });
+      view.dispatch(reloadTransaction(view.state, text));
     },
 
     setTheme: (id) => {

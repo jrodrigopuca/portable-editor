@@ -30,12 +30,18 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<u64> {
             if let Some(perms) = original_perms {
                 let _ = std::fs::set_permissions(&tmp, perms);
             }
-            std::fs::rename(&tmp, &target)
+            // The mtime is the TEMP's, read before the rename (which keeps
+            // the inode, mtime included). Stat'ing the target afterwards
+            // would be the unsafe order: another writer landing between
+            // rename and stat would be recorded as "ours" and never
+            // detected by the frontend's poll.
+            let mtime = mtime_ms(&tmp)?;
+            std::fs::rename(&tmp, &target)?;
+            Ok(mtime)
         })
         .inspect_err(|_| {
             let _ = std::fs::remove_file(&tmp);
-        })?;
-    mtime_ms(&target)
+        })
 }
 
 /// Creates the temp file with the target's mode from the very first byte

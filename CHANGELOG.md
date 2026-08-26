@@ -7,6 +7,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 ### Agregado
 
+- Cerrar la ventana justo después de guardar un archivo grande espera a que el guardado termine antes de preguntar por cambios sin guardar (ver ROADMAP.md sección 10, ítem 5).
+- Presionar `Mod+O` o `Mod+Shift+S` varias veces seguidas ya no abre varios diálogos en fila: mientras hay uno pendiente, los demás se ignoran (ver ROADMAP.md sección 10, ítem 7).
+- Una recarga por cambio externo cuyo contenido ya coincide con el editor ya no agrega un paso de deshacer vacío ni mueve el scroll (ver ROADMAP.md sección 10, ítem 4).
 - Lanzar `portable-editor a.txt` y `portable-editor b.txt` casi al mismo tiempo con la app cerrada ahora abre `a` y avisa que `b` no se abrió; antes abría `b` y perdía `a` sin aviso (ver ROADMAP.md sección 10, ítem 1).
 - Un cambio externo detectado justo mientras el editor estaba ocupado (abriendo otro archivo, o esperando una respuesta) ya no puede pisar texto tipeado en ese intervalo sin preguntar, ni preguntar "¿descartar cambios?" por un cambio que era el propio guardado del editor (ver ROADMAP.md sección 10, ítem 2).
 - Tipear durante un guardado ya no deja un snapshot de recuperación más viejo que el archivo guardado: se toma uno nuevo en el momento (ver ROADMAP.md sección 10, ítem 3).
