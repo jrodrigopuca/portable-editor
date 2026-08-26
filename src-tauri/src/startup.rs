@@ -37,6 +37,10 @@ pub struct StartupTarget {
 pub struct PendingState {
     pub slot: Option<StartupTarget>,
     pub frontend_ready: bool,
+    /// The cold-start argv named a file whose path isn't valid UTF-8. Kept
+    /// here (not emitted: nobody is listening yet) for `startup_file()` to
+    /// report. See `seed_from_argv`.
+    pub startup_error: Option<NonUtf8Path>,
 }
 
 /// Tauri-managed state wrapping `PendingState`. See there.
@@ -44,9 +48,31 @@ pub struct PendingState {
 pub struct PendingFile(pub Mutex<PendingState>);
 
 impl PendingFile {
-    pub fn new() -> Self {
-        Self::default()
+    /// The state the app starts with: the cold-start argv (if any) already
+    /// sitting in the slot. That makes argv one producer among the others
+    /// (`merge_opened` from a second CLI call or a macOS `Opened`): whoever
+    /// came first wins, the rest are counted in `extra_ignored`. Before
+    /// this, argv was read lazily by `startup_file()` only if the slot was
+    /// empty — so two CLI invocations during a cold start opened the SECOND
+    /// file and silently lost the first.
+    pub fn from_argv(state: PendingState) -> Self {
+        Self(Mutex::new(state))
     }
+}
+
+/// Initial `PendingState` for a cold start. `arg` is argv[1] as raw bytes
+/// (`args_os`), resolved against `base_dir`. A non-UTF-8 result becomes
+/// `startup_error` rather than a lossy target — see `utf8_path`.
+pub fn seed_from_argv(base_dir: &Path, arg: Option<&Path>) -> PendingState {
+    let mut state = PendingState::default();
+    if let Some(arg) = arg {
+        match resolve_open_arg(base_dir, arg) {
+            Ok(Some(target)) => state.slot = Some(target),
+            Ok(None) => {}
+            Err(err) => state.startup_error = Some(err),
+        }
+    }
+    state
 }
 
 /// A resolved path whose bytes aren't valid UTF-8, so it can't travel as a
@@ -142,9 +168,16 @@ pub fn merge_opened(state: &mut PendingState, target: StartupTarget) -> Option<S
 /// The `startup_file()` half of the handshake: takes whatever was stashed
 /// and marks the frontend ready, atomically with respect to `merge_opened`
 /// (both run under the same lock).
-pub fn take_pending(state: &mut PendingState) -> Option<StartupTarget> {
+pub fn take_pending(state: &mut PendingState) -> Result<Option<StartupTarget>, NonUtf8Path> {
     state.frontend_ready = true;
-    state.slot.take()
+    let slot = state.slot.take();
+    // A bad argv is reported even if a later, valid target got stashed
+    // meanwhile: the user typed that argument and deserves to hear why it
+    // didn't open. The stashed one is dropped with it (edge of an edge).
+    match state.startup_error.take() {
+        Some(err) => Err(err),
+        None => Ok(slot),
+    }
 }
 
 #[cfg(test)]
@@ -297,6 +330,7 @@ mod tests {
             PendingState {
                 slot,
                 frontend_ready,
+                startup_error: None,
             }
         }
 
@@ -407,16 +441,18 @@ mod tests {
             let mut st = PendingState {
                 slot: Some(target("/a.txt")),
                 frontend_ready: false,
+                startup_error: None,
             };
 
-            let taken = take_pending(&mut st);
+            let taken = take_pending(&mut st).unwrap();
 
             assert_eq!(taken, Some(target("/a.txt")));
             assert_eq!(
                 st,
                 PendingState {
                     slot: None,
-                    frontend_ready: true
+                    frontend_ready: true,
+                    startup_error: None,
                 }
             );
         }
@@ -426,12 +462,63 @@ mod tests {
             // The handshake end to end: whatever arrives after the poll can
             // never be swallowed by the slot.
             let mut st = PendingState::default();
-            assert_eq!(take_pending(&mut st), None);
+            assert_eq!(take_pending(&mut st).unwrap(), None);
 
             let emitted = merge_opened(&mut st, target("/late.txt"));
 
             assert_eq!(emitted, Some(target("/late.txt")));
             assert_eq!(st.slot, None);
+        }
+    }
+
+    mod seed_from_argv {
+        use super::super::*;
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        #[test]
+        fn no_argv_is_an_empty_state() {
+            let state = seed_from_argv(Path::new("/tmp"), None);
+            assert_eq!(state, PendingState::default());
+        }
+
+        #[test]
+        fn argv_lands_in_the_slot_before_anyone_else() {
+            let dir = tempfile::tempdir().unwrap();
+            let state = seed_from_argv(dir.path(), Some(Path::new("new.txt")));
+            let slot = state.slot.expect("argv target");
+            assert!(!slot.exists);
+            assert_eq!(slot.extra_ignored, 0);
+            assert!(!state.frontend_ready);
+        }
+
+        #[test]
+        fn a_second_cli_call_during_cold_start_is_counted_not_preferred() {
+            // The round-3 regression: argv must be the FIRST target, so a
+            // second invocation that lands before the frontend polls gets
+            // folded into extra_ignored instead of replacing it.
+            let dir = tempfile::tempdir().unwrap();
+            let mut state = seed_from_argv(dir.path(), Some(Path::new("a.txt")));
+            let b = StartupTarget {
+                path: dir.path().join("b.txt").to_string_lossy().into_owned(),
+                exists: false,
+                extra_ignored: 0,
+            };
+            assert_eq!(merge_opened(&mut state, b), None);
+            let taken = take_pending(&mut state).unwrap().expect("argv target");
+            assert!(taken.path.ends_with("a.txt"));
+            assert_eq!(taken.extra_ignored, 1);
+        }
+
+        #[test]
+        fn non_utf8_argv_is_reported_by_take_pending() {
+            let dir = tempfile::tempdir().unwrap();
+            let bad = OsStr::from_bytes(b"caf\xe9.txt");
+            let mut state = seed_from_argv(dir.path(), Some(Path::new(bad)));
+            assert!(state.slot.is_none());
+            assert!(state.startup_error.is_some());
+            assert!(take_pending(&mut state).is_err());
+            assert!(state.frontend_ready);
         }
     }
 }

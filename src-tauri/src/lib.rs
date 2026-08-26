@@ -8,7 +8,7 @@ mod recovery;
 mod startup;
 mod text_io;
 use io_error::IoError;
-use startup::{resolve_open_arg, PendingFile, StartupTarget};
+use startup::{resolve_open_arg, PendingFile, PendingState, StartupTarget};
 
 /// Event name for a file the OS/CLI handed us that can't be opened before
 /// `read_file` ever runs (today: a non-UTF-8 path). Payload: a plain `String`
@@ -309,19 +309,20 @@ fn startup_file(pending: tauri::State<PendingFile>) -> Result<Option<StartupTarg
     // Take the slot and flip the flag under ONE lock: a target racing this
     // call (macOS `Opened`, or a second CLI invocation via single-instance)
     // either lands in the slot (and is returned here) or sees the flag and
-    // is emitted — never both, never neither.
-    let stashed = startup::take_pending(&mut pending.0.lock().unwrap());
-    if let Some(target) = stashed {
-        return Ok(Some(target));
-    }
-    // `args_os`, not `args`: argv is raw bytes on Linux and `args()` panics
-    // on a non-UTF-8 entry (trampa: a file named in Latin-1 would crash the
-    // app at startup instead of opening).
-    let Some(arg) = std::env::args_os().nth(1) else {
-        return Ok(None);
-    };
+    // is emitted — never both, never neither. The cold-start argv is
+    // already in the slot (see `initial_pending_state`), so there's no
+    // second source to consult here.
+    startup::take_pending(&mut pending.0.lock().unwrap()).map_err(String::from)
+}
+
+/// `PendingState` for this process: argv[1] (if any) resolved against the
+/// cwd. `args_os`, not `args`: argv is raw bytes on Linux and `args()`
+/// panics on a non-UTF-8 entry (a file named in Latin-1 would crash the app
+/// at startup instead of reporting it).
+fn initial_pending_state() -> PendingState {
+    let arg = std::env::args_os().nth(1);
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    resolve_open_arg(&cwd, Path::new(&arg)).map_err(String::from)
+    startup::seed_from_argv(&cwd, arg.as_deref().map(Path::new))
 }
 
 /// Shared tail of the two "a file arrived while running" entry points
@@ -448,7 +449,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .manage(PendingFile::new())
+        .manage(PendingFile::from_argv(initial_pending_state()))
         .setup(|app| {
             build_menu(app)?;
             // GC of orphaned snapshots (ROADMAP §8 item 22). Errors ignored:

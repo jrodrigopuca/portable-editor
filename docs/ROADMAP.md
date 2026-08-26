@@ -10,7 +10,7 @@ Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con 
 | Robustez                 | 🟢     | Guardado atómico, cambios externos, encodings, EOL, archivos enormes y archivo borrado — todos ✔ (Fase 3 completa) |
 | Arquitectura             | 🟢     | Capas claras, IPC mínimo, módulos con responsabilidad única              |
 | Documentación            | 🟢     | README, ARCHITECTURE, RELEASE, CLAUDE.md — por encima de la media        |
-| Tests automatizados      | 🟡     | Lógica pura con Vitest (67 tests) y `cargo test` (56); sin E2E todavía (smoke test manual)   |
+| Tests automatizados      | 🟡     | Lógica pura con Vitest (68 tests) y `cargo test` (60); sin E2E todavía (smoke test manual)   |
 | CI de calidad            | 🟢     | Biome, tsc, Vitest, rustfmt y clippy en cada push/PR                     |
 | Lint/format              | 🟢     | Biome (frontend) + rustfmt/clippy (backend)                              |
 | Distribución             | 🟢     | Íconos propios ✔; release v0.1.0 publicado y firmado/notarizado (macOS arm64+x64, .deb, .rpm, .AppImage) |
@@ -222,7 +222,30 @@ Revisión de segunda opinión (`architect` + `qa`) sobre los fixes de §8, halla
 
 **Sin verificar (ambos revisores):** GUI/diálogos en cualquier plataforma, CSP en bundle real, handler `Opened` en runtime, workflows de CI en GitHub.
 
-## 10. Fase 5 — Distribución y alcance
+## 10. Tercera revisión: el seam de la cola y el arranque frío (2026-08-25, sobre `6ca38ac`)
+
+Tercera ronda (`architect` + `qa`) sobre §9. Veredicto compartido: la cola cumplió "una regla" — todo sitio que muta `doc` está adentro de la cola o es un flujo de fondo con `gen`; ningún `exclusive()` es alcanzable desde adentro de una tarea encolada (verificado con test descartable); dependencias en la dirección correcta en TS y Rust; nada que borrar salvo `beginDocument()`. Lo que la cola **introdujo** es un seam: la decisión del poll se toma AFUERA (`dirty`, `mtime`) y se confía ADENTRO, y entre ambos momentos el mundo cambia. Más un bug de arranque frío que ya existía en otra forma. Después de esto, ambos revisores recomiendan **parar**: la historia de concurrencia ya es más chica que el archivo que la aloja.
+
+**Bloque A — Datos (arreglar antes de cerrar la ronda)**
+
+1. ~~**Dos invocaciones CLI durante el arranque frío abren el SEGUNDO archivo y pierden el primero (ambas plataformas)**~~ ✅ 2026-08-25 — `startup::seed_from_argv` + `PendingState.startup_error`; `PendingFile::from_argv(initial_pending_state())` en el Builder; `startup_file()` es solo `take_pending` (que ahora devuelve `Result` y reporta el argv no-UTF-8 aunque haya un target válido guardado). 4 tests nuevos (`seed_from_argv`), incluido el de la regresión: argv + segunda invocación → abre argv con `extra_ignored = 1`. `cargo test`: 60. Trampa #32 reescrita (incluye la nota de HMR del ítem 9); línea nueva en `SMOKE-TEST.md`.
+2. ~~**La decisión del poll envejece en la cola**~~ ✅ 2026-08-25 — `checkExternalChange()` clasifica NOOP/MISSING afuera y encola `applyExternalChange(mtime)` para RELOAD/ASK; adentro (tras `isStale`) se re-corre `externalChangeDecision` con el `dirty`/`mtime` actuales y recién ahí se asigna `doc.mtime`. Un guardado propio ya registrado da NOOP. Trampa #58.
+3. ~~**Tipear durante el guardado deja un snapshot de recovery MÁS VIEJO que el disco**~~ ✅ 2026-08-25 — `writeTo()`: si `afterWrite` deja dirty, `saveRecovery(path, editor.getText())` inmediato (best-effort); si no, `clearRecovery`. Trampa #51 actualizada.
+
+**Bloque B — Pulido (chicos, sin riesgo de datos)**
+
+4. **Una recarga con contenido idéntico NO es no-op para el usuario** — verificado con test sobre `EditorState` + `history`: `replaceText` con texto byte a byte igual lleva `undoDepth` 0 → 1 (un Mod+Z fantasma), colapsa multi-cursor (`selection: { anchor }`) y `scrollIntoView` devuelve el viewport al cursor. Lo disparan el diseño stat-antes-del-read (documentado como "inofensivo" — no del todo) y el ítem 2b. Fix: en `reloadFromDisk`, si `file.contents === editor.getText()` → `Object.assign(doc, fromDisk(...))` sin `replaceText`. Corregir trampa #44.
+5. **`onCloseRequested` es el último diálogo fuera de la cola** — Mod+S y enseguida Mod+W en archivo grande: `dirty` sigue true durante el write → "¿descartar?" → sí → la ventana baja con el write en vuelo (atómico, no corrompe, pero el usuario creyó que guardó). Tauri espera el handler antes de `destroy()` (verificado en `@tauri-apps/api/window.js`), así que `await exclusive(...)` alrededor del cuerpo es legal: Close espera al Save y deja de apilarse sobre un "discard?" de New. Con esto el invariante #11 no tiene excepciones.
+6. **`write_atomic` hace stat DESPUÉS del `rename`** (`fs_ops.rs`) — dirección insegura del TOCTOU del lado del guardado: un escritor que aterriza entre rename y stat queda registrado como "nuestro". `mtime_ms(&tmp)` antes del `rename` lo cierra gratis (rename preserva el mtime del inodo). Test: el mtime devuelto es el del temp.
+7. **Mod+O / Mod+Shift+S repetidos con un diálogo nativo arriba encolan N diálogos en fila** — mejor que antes (N concurrentes), pero para Open/Save As SIN path lo correcto es *coalesce* (ignorar mientras hay uno pendiente), no encolar. Un flag `dialogPending` en los dos wrappers. `open-file-error` ×3 → 3 diálogos: aceptable por rareza.
+8. **`exclusive()` es el invariante que sostiene todo y tiene cero tests** — extraer a `src/queue.ts` (puro) con los tres tests que el QA escribió y descartó: orden, aislamiento de rechazos, y "una tarea que espera la cola desde adentro cuelga" (documenta el deadlock en vez de descubrirlo).
+9. **Gusto** — inline `beginDocument()` en `becomeDocument()` (un solo caller; separado invita a llamarlo sin el `Object.assign`); una frase en trampa #32: `frontend_ready` no se resetea en un reload del webview (solo pasa con `tauri dev`/HMR — el argv se reabre y un `open-file` entre el reload y el `listen()` se pierde); `editor.ts` sigue sin tests (undo tras reload, contenido idéntico) — vale la pena convertir el test descartable del QA en real.
+
+**Verificado en esta ronda y que se sostiene:** sin deadlocks ni starvation (todos los callers de `exclusive()` auditados); `afterWrite` + undo; Save As al mismo path (recientes sin duplicar, cursor e historial intactos); stat-antes-del-read no produce loops (el stat del read gana, el próximo poll compara igual); `checkingExternal` no apila (interval y focus salen temprano); `PendingState`/`take_pending` correctos para el camino caliente (probado en vivo por el autor); mensaje "1 other file" en Linux en la única ventana que existe; `PLATFORM` y `isIoError` justificados (no borrar).
+
+**Sin verificar (ambos revisores):** GUI/diálogos, timing real de segunda instancia en frío, CSP en bundle, `Opened` en runtime, TCC.
+
+## 11. Fase 5 — Distribución y alcance
 
 En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, descargas):
 
@@ -234,7 +257,7 @@ En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, de
 
 ---
 
-## 11. Reglas de decisión transversales
+## 12. Reglas de decisión transversales
 
 - **Robustez > features.** Un bug de pérdida de datos vale más que diez features nuevas.
 - **Presupuesto de complejidad:** cada dependencia nueva (npm o crate) se justifica por escrito en el PR. El proyecto se mantiene entendible por UNA persona en una tarde.

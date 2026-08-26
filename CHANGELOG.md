@@ -7,6 +7,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 ### Agregado
 
+- Lanzar `portable-editor a.txt` y `portable-editor b.txt` casi al mismo tiempo con la app cerrada ahora abre `a` y avisa que `b` no se abrió; antes abría `b` y perdía `a` sin aviso (ver ROADMAP.md sección 10, ítem 1).
+- Un cambio externo detectado justo mientras el editor estaba ocupado (abriendo otro archivo, o esperando una respuesta) ya no puede pisar texto tipeado en ese intervalo sin preguntar, ni preguntar "¿descartar cambios?" por un cambio que era el propio guardado del editor (ver ROADMAP.md sección 10, ítem 2).
+- Tipear durante un guardado ya no deja un snapshot de recuperación más viejo que el archivo guardado: se toma uno nuevo en el momento (ver ROADMAP.md sección 10, ítem 3).
 - Las acciones sobre el documento (Nuevo, Abrir, Guardar, Guardar como, abrir desde terminal o Finder, recarga por cambio externo) ahora se ejecutan de a una: un diálogo de confirmación ya no puede quedar respondido sobre un archivo distinto del que preguntó, ni apilarse una segunda pregunta contradictoria encima (ver ROADMAP.md sección 9, ítem 12).
 - Abrir dos archivos en rápida sucesión ya no puede dejar al segundo con la fecha de modificación del primero (lo que disparaba recargas o avisos de "cambió en disco" falsos); y un cambio externo que aterriza justo mientras se lee el archivo ya no pasa desapercibido (ver ROADMAP.md sección 9, ítem 13).
 - Tipear mientras un guardado está en curso (disco lento, archivo grande) ya no marca esos caracteres como guardados: el punto de "sin guardar" se mantiene y cerrar la ventana vuelve a preguntar (ver ROADMAP.md sección 9, ítem 1).

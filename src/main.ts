@@ -459,7 +459,15 @@ async function writeTo(path: string): Promise<boolean> {
     // afterWrite() keeps the doc dirty in that case (see document.ts).
     doc.mtime = mtime;
     Object.assign(doc, afterWrite(contents, editor.getText()));
-    if (!doc.dirty) void clearRecovery(path);
+    if (doc.dirty) {
+      // Keystrokes landed during the write: the snapshot on disk (from an
+      // autosave tick BEFORE this save) is now older than the file itself.
+      // A crash in the next 10 s would offer to "recover" backwards. Replace
+      // it with the buffer as it is now; best-effort like every autosave.
+      void ipc.saveRecovery(path, editor.getText()).catch(() => {});
+    } else {
+      void clearRecovery(path);
+    }
     return true;
   } catch (err) {
     await message(errorMessage(err, path, IO_OPERATION.SAVE, platform), {
@@ -480,6 +488,24 @@ async function confirmReloadDiscard(): Promise<boolean> {
     title: APP_NAME,
     kind: "warning",
   });
+}
+
+/** Inside the queue: acts on the disk's mtime as of the poll, judged
+ * against the document as it is NOW. */
+async function applyExternalChange(mtime: number): Promise<void> {
+  switch (externalChangeDecision(mtime, doc)) {
+    case EXTERNAL_CHANGE.NOOP:
+    case EXTERNAL_CHANGE.MISSING:
+      return; // our own save caught up, or the poll will re-flag it
+    case EXTERNAL_CHANGE.RELOAD:
+      doc.mtime = mtime; // recorded: don't prompt again for the same change
+      await reloadFromDisk();
+      return;
+    case EXTERNAL_CHANGE.ASK:
+      doc.mtime = mtime;
+      if (await confirmReloadDiscard()) await reloadFromDisk();
+      return;
+  }
 }
 
 /** Always called from inside the document queue: the document can't change
@@ -564,19 +590,20 @@ async function checkExternalChange(): Promise<void> {
         updateStatus();
         return;
       case EXTERNAL_CHANGE.RELOAD:
-        doc.mtime = mtime; // recorded: don't prompt again for the same change
-        await exclusive(async () => {
-          if (!isStale(gen)) await reloadFromDisk();
-        });
-        return;
       case EXTERNAL_CHANGE.ASK:
-        doc.mtime = mtime;
         // Queued: if a "discard A?" dialog is already up, this waits for it
-        // (and re-checks that A is still on screen) instead of stacking a
-        // second, contradictory question on top.
+        // instead of stacking a second, contradictory question on top. By
+        // the time it runs, the world may have moved — another document on
+        // screen (isStale), keystrokes that make a silent reload a data
+        // loss, or our OWN save having landed (its stat can overtake
+        // write_file's response on the async runtime, and then the "change"
+        // is ours and the doc is clean). So the decision is re-derived HERE,
+        // with the current dirty/mtime, and `doc.mtime` is recorded here
+        // too — not at poll time, where the information was already stale.
+        if (mtime === null) return; // unreachable: both decisions need a stat; narrows the type
         await exclusive(async () => {
           if (isStale(gen)) return;
-          if (await confirmReloadDiscard()) await reloadFromDisk();
+          await applyExternalChange(mtime);
         });
         return;
     }
