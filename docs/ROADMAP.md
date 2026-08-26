@@ -1,6 +1,6 @@
 # Roadmap y madurez — portable-editor
 
-Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con criterios de salida verificables. Última actualización: 2026-08-19.
+Diagnóstico honesto del estado del proyecto y plan de evolución en fases, con criterios de salida verificables. Última actualización: 2026-08-25.
 
 ## 1. Diagnóstico de madurez
 
@@ -150,7 +150,51 @@ Revisión del agente `qa` sobre flujos de archivo, encoding/EOL, sincronización
 14. ~~**Fallback de tema corrupto usaba `THEMES[0]` en vez de `DEFAULT_THEME_ID`**~~ ✅ 2026-08-25 — `themeById()` cae explícitamente a `DEFAULT_THEME_ID`; si ese id no estuviera en `THEMES` (invariante interno roto), tira un `Error` en vez de fallar en silencio. Documentado en `ARCHITECTURE.md` trampa #33.
 15. ~~**`detectIndent()` no tenía guard de tamaño, a diferencia del highlighting**~~ ✅ 2026-08-25 — `DETECT_INDENT_SIZE_LIMIT` (10 MB, mismo valor que `HIGHLIGHT_SIZE_LIMIT` pero declarado aparte a propósito) hace que por encima de eso se salte el scan y use el default (2 espacios) directamente. Test nuevo en `indent.test.ts`. Documentado en `ARCHITECTURE.md` trampa #34.
 
-## 8. Fase 5 — Distribución y alcance
+## 8. Hallazgos de revisión arquitectónica (2026-08-25)
+
+Revisión con tres lentes (Rust/IPC, frontend, QA/CI/docs) sobre HEAD `b9eaf3b`, hallazgos verificados a mano contra el código. Veredicto: dirección de dependencias correcta, TS estricto de verdad, invariantes de `CLAUDE.md` cumplidos. El problema es de otro tipo: la lógica más densa en bugs (abrir / recargar / dirty / recovery) vivía fusionada con DOM e `invoke` en `main.ts` sin cobertura, y cada flujo async reinventaba a mano la regla "¿cambió el mundo mientras esperaba?" — de ahí tres commits seguidos de `fix: race`. El plan ataca eso: primero los bugs concretos, después el lugar donde vive la regla, y recién entonces los tests que hacen que se queden arreglados.
+
+Cada ítem se tacha (`~~...~~ ✅ fecha`) al resolverse, con la trampa/test que lo documenta, igual que en §7.
+
+**Bloque A — Bugs concretos (arreglar primero, cada uno es chico)**
+
+1. ~~**Regresión de `b9eaf3b`: el segundo "Open With" con la app ya corriendo se traga en silencio**~~ ✅ 2026-08-25 — con la app viva, el primer `RunEvent::Opened` encontraba `pending = None`, guardaba el target y emitía; nadie limpiaba `pending` (`startup_file()` corre una sola vez), así que el segundo caía en la rama "cold-start race", sumaba `extra_ignored` a un target que nadie iba a leer y NO emitía. Fix: `PendingFile` pasa a `{ slot, frontend_ready: AtomicBool }`; `startup_file()` hace `take()` del slot y DESPUÉS marca ready (un evento concurrente cae en el slot o ve el flag, nunca ambos ni ninguno). Con ready el handler emite siempre y no toca el slot; sin ready fusiona como antes pero ya no emite (de paso elimina el doble-open cuando el evento caía entre `listen()` y el poll). La decisión vive ahora en `startup::merge_opened()`, pura y testeada (ítem 13). Trampa #32 reescrita; línea nueva en `SMOKE-TEST.md`. Pendiente el smoke test en bundle macOS.
+2. ~~**`checkExternalChange()` y `reloadFromDisk()` mutaban `doc` tras un `await` sin verificar que siguiera siendo el mismo documento**~~ ✅ 2026-08-25 — si se abría B mientras el `file_mtime` de A estaba en vuelo, B heredaba el mtime de A; si A había sido borrado, **B** quedaba marcado `missing`; `reloadFromDisk()` podía meter el contenido de A en el buffer de B. `autosaveTick()` ya lo hacía bien (recapturaba `path`). Fix: UN concepto en vez de tres parches — `doc.gen` + `beginDocument()`/`isStale()`; capturado en `checkExternalChange()` (después del stat y en el `catch`) y en `reloadFromDisk()` (después del `read_file` y del diálogo). De paso `openFile()`/`restoreSession()` dejan de mutar `doc.*` antes del `await checkRecovery()`. Documentado en `ARCHITECTURE.md` trampa #37 y `CLAUDE.md` invariante #11. La decisión de `checkExternalChange` es ahora `externalChangeDecision()` en `document.ts`, con tests (ítem 10).
+3. ~~**Leak de recovery en Save As**~~ ✅ 2026-08-25 — `writeTo(pathB)` limpiaba el recovery de B, nunca el de A (escrito por `autosaveTick` mientras A estaba dirty); al reabrir A ofrecía "recuperar" contenido ya guardado como B. `saveFileAs()` captura `doc.path` antes de `writeTo()` y limpia su recovery si difiere del destino; también llama `beginDocument()`. Trampa #39.
+4. ~~**`init()` sin `try/catch` alrededor de `startup_file`**~~ ✅ 2026-08-25 — si rechazaba, los `setInterval` de polling y autosave nunca se registraban: sesión entera sin red de seguridad, sin síntoma visible. Timers y listener de `focus` se registran ANTES; el bloque de apertura/restauración va en `try/catch` con el mismo diálogo de error que `openFile()`. Trampa #38.
+5. ~~**Startup y cola de `open-file` no serializados**~~ ✅ 2026-08-25 — el `listen("open-file")` se registraba al evaluar el módulo y `openFileQueue` arrancaba resuelta, pero `init()` abría/restauraba fuera de la cola (un CLI single-instance durante el arranque corría concurrente con `restoreSession()`). `openFileQueue = init()` en vez de `void init()`. Trampa #38.
+
+**Bloque B — Robustez de escritura y permisos (Rust)**
+
+6. ~~**`write_file` no era atómico ante corte de luz / kernel panic**~~ ✅ 2026-08-25 — sin `sync_all()` antes de `rename`, en APFS/ext4 el rename puede tocar disco antes que los datos del temp → archivo vacío. `fs_ops::write_atomic()`: `write_all` + `sync_all` antes del `rename`. Trampa #40; invariante #2 de `CLAUDE.md` actualizado. Test en `fs_ops::tests`.
+7. ~~**Ventana de permisos en el temp**~~ ✅ 2026-08-25 — `fs::write` creaba el temp con umask (0644) y recién después copiaba el modo: un `.env` 0600 quedaba legible en el mismo directorio unos ms. `OpenOptions::mode(original)` + `create_new` + re-`set_permissions` (el mode inicial pasa por umask); se borra un temp huérfano antes de crear. Trampa #41. Test "0600 se preserva" en `fs_ops::tests`.
+8. ~~**Archivos de recovery con permisos abiertos**~~ ✅ 2026-08-25 — `save_recovery` escribía copias 0644 de cualquier buffer dirty fuera del directorio original. `recovery_dir()` aplica 0700 en cada llamada; `save_recovery` crea con `mode(0o600)`. Trampa #42. La barrida de snapshots huérfanos se desprende como ítem 22.
+9. ~~**`csp: null` en `tauri.conf.json`**~~ ✅ 2026-08-25 — los comandos de path arbitrario son correctos para un editor (el diálogo del OS ES la autorización; no scopear), pero eso descansa en que el webview sea confiable, y CSP es la única defensa barata contra una dependencia npm comprometida. `csp` + `devCsp`: `default-src 'self'`, `style-src` con `'unsafe-inline'` (CodeMirror inyecta `<style>`), `connect-src` con `ipc:`/`http://ipc.localhost` y en dev el HMR de Vite. Trampa #43. **Verificar con `tauri dev` Y con bundle** (el CSP de producción no se ejercita en dev): editor renderiza, temas cambian, diálogos e IPC funcionan, consola sin errores de CSP.
+
+**Bloque C — Seams y tests (lo que hace que A y B se queden arreglados)**
+
+10. ~~**Extraer `src/document.ts` (estado puro del documento)**~~ ✅ 2026-08-25 — `DocState` (ahora con `savedText`, `cursor` y `gen` adentro), `emptyDoc`, `fromDisk`, `docFromFile`, `docFromRecovery`, `nextDirty`, `EXTERNAL_CHANGE` + `externalChangeDecision`. Los cinco sitios que reseteaban 5-8 campos a mano pasan por `becomeDocument(next)` (= `beginDocument()` + `Object.assign`, síncrono — invariante #11 intacto). `afterFileLoaded()` ya no fuerza `dirty = false`: lo decide `docFromFile` (recovered ≠ disk). 20 tests en `document.test.ts` (suite Vitest: 56).
+11. ~~**Extraer `src/ipc.ts`**~~ ✅ 2026-08-25 — un wrapper tipado por comando, tipos `DecodedFile`/`StartupTarget`, `MENU_ACTION` const object + `isMenuAction()`; ids verificados contra `build_menu` en `lib.rs` (fuente de verdad, sin cambios). `main.ts` ya no tiene ningún `invoke` directo.
+12. ~~**`write_file` devuelve el mtime resultante**~~ ✅ 2026-08-25 — `write_file -> Result<u64>` vía `mtime_ms()` (compartido con `file_mtime`); `writeTo()` asigna `doc.mtime` junto con `dirty = false`; `saveFile()` ya no llama `refreshMtime()`. Elimina el invariante viejo #4 de `CLAUDE.md` ("acordate de llamar `refreshMtime()`"): un invariante "acordate de X después de Y" es un return value que falta. Trampa #44.
+13. ~~**Extraer `src-tauri/src/fs_ops.rs` y `startup.rs`**~~ ✅ 2026-08-25 — `fs_ops::write_atomic(&Path, &[u8]) -> io::Result<u64>`, `resolve_symlink_target`, `tmp_path`, `mtime_ms`; `startup::{StartupTarget, PendingFile, resolve_open_arg, merge_opened}`. `lib.rs` queda como wiring del Builder + comandos delgados; los módulos reciben `&Path`, nunca `AppHandle`. 24 tests nuevos con `tempfile` (única dep nueva, dev-only): 11 en `fs_ops` (temp en mismo dir, 0600 preservado, symlink sobrevive, symlink roto reemplazado, mtime devuelto = metadata, dir inexistente falla sin dejar temp, rename fallido limpia el temp, temp huérfano se borra) y 13 en `startup` (6 `resolve_open_arg` incl. nombre con guion inicial; 7 `merge_opened` incl. la regresión del ítem 1 y el conteo multi-evento). `cargo test`: 42.
+14. ~~**Pata macOS en CI**~~ ✅ 2026-08-25 — job `rust-macos` en `ci.yml` (`macos-latest`, `cargo clippy --all-targets -D warnings` + `cargo test`, con stub de `dist/`, sin bundle ni firma): todo lo `#[cfg(target_os = "macos")]` deja de compilarse por primera vez en un tag. Además `vite build` en el job frontend (antes solo `tsc`) y `release.yml` usa `npm ci` (misma resolución de lockfile que validó CI). **Pendiente de ver correr en GitHub** — se escribió sin poder ejecutarlo localmente.
+
+**Bloque D — Fricción menor (cuando se pase por ahí)**
+
+15. **Errores tipados en IPC** — todos los comandos devuelven `Result<_, String>`; "no existe" vs "sin permiso" vs "muy grande" son indistinguibles sin `includes(...)`. `enum IoError { NotFound, PermissionDenied, TooLarge { size, limit }, Other(String) }` serializable; el formateo de `size_limit_error` (presentación) sale de `text_io.rs` y va al frontend, donde ya viven los strings de UI.
+16. **Comandos IO síncronos bloquean el main thread** — `read_file` de 100 MB, `write_file`, `save_recovery` cada 10 s. `async fn` en los tres.
+17. **`std::env::args()` hace panic con argv no-UTF-8 (Linux)** — `args_os()` + `&OsStr` en `resolve_open_arg`; mismo patrón lossy en los `to_string_lossy()` de paths.
+18. **Lone `\r` (Mac clásico) se normaliza pero no cuenta en `detect_eol` ni marca `mixed_eol`** — conversión silenciosa a LF. Contarlo en el voto o al menos marcar mixed; un test.
+19. **Trampa #6 es evitable** — anotar la transacción de `replaceText` con `userEvent: "reload"` y saltear `onDocChanged` para ella; `editor.ts` ya distingue por `isUserEvent`.
+20. **`is_stale_symlink` borra CUALQUIER symlink en `CLI_TARGET`** aunque el comentario dice "el nuestro"; chequear que `read_link` apunte al bundle. Honestidad doc/código más que riesgo.
+21. **Docs desincronizadas tras `b9eaf3b`** — `ARCHITECTURE.md`: tabla de `startup_file` sin `extra_ignored`; "`themeById()` cae al primer tema / nunca lanza" contradice trampa #33; "`restoreSession()` deliberadamente silencioso" contradice trampa #35; `likely_binary` referencia trampa #22 (es la #9, también en este ROADMAP); lista de lógica pura omitía `indent.ts` (también en `CLAUDE.md`). Este ROADMAP: "22 tests" (son 56 Vitest + 42 cargo). `CHANGELOG.md` cita "sección 7, ítem 3" para dos bugs distintos (el de concurrencia CLI es el ítem 4).
+22. **GC de snapshots de recovery huérfanos** — un original borrado o renombrado deja su `.recovery` para siempre en `app_data_dir()/recovery/`. Barrer al arrancar los más viejos de N días (30 es razonable: más que cualquier sesión abandonada, menos que "para siempre"). Desprendido del ítem 8.
+
+**Gusto, no hallazgo (sin acción obligatoria):** `noUncheckedIndexedAccess` apagado aunque `indent.ts` ya codea como si estuviera prendido; `applyTheme(id: string)` donde `ThemeId` existe; `byId<T>` con cast sin chequeo.
+
+**Qué NO hacer (los tres revisores coincidieron):** event bus, store/reducer, state machine, "componentes", abstracción genérica de file-watcher, separar open/save en módulos distintos (comparten `doc` + `editor`; se termina en context objects o en un ciclo). Un descriptor de preferencias `{ key, parse, apply }` recién a la CUARTA preferencia, no antes. El producto es mini a propósito y la arquitectura lo respeta: eso es una virtud.
+
+## 9. Fase 5 — Distribución y alcance
 
 En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, descargas):
 
@@ -162,7 +206,7 @@ En orden de esfuerzo/beneficio, y solo con tracción real (estrellas, issues, de
 
 ---
 
-## 9. Reglas de decisión transversales
+## 10. Reglas de decisión transversales
 
 - **Robustez > features.** Un bug de pérdida de datos vale más que diez features nuevas.
 - **Presupuesto de complejidad:** cada dependencia nueva (npm o crate) se justifica por escrito en el PR. El proyecto se mantiene entendible por UNA persona en una tarde.

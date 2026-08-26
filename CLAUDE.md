@@ -26,31 +26,36 @@ npm run tauri dev      # correr la app (compila Rust; la lanza el dev, no el age
 npm run tauri build    # bundle de producción
 ```
 
-La lógica pura (recientes, prefs, paths) vive en módulos sin DOM ni Tauri (`src/recent.ts`, `src/prefs.ts`, `src/paths.ts`) con tests al lado (`*.test.ts`). Lógica nueva testeable va ahí, no dentro de `main.ts`.
+La lógica pura (estado del documento, recientes, prefs, paths, indentación) vive en módulos sin DOM ni Tauri (`src/document.ts`, `src/recent.ts`, `src/prefs.ts`, `src/paths.ts`, `src/indent.ts`) con tests al lado (`*.test.ts`). Lógica nueva testeable va ahí, no dentro de `main.ts`. Todo `invoke` pasa por los wrappers tipados de `src/ipc.ts` (único módulo que importa `@tauri-apps/api/core`); un comando nuevo en Rust = un wrapper nuevo ahí.
 
 ## Mapa rápido
 
 | Quiero tocar...                  | Archivo                                 |
 | -------------------------------- | ---------------------------------------- |
 | Acciones, atajos, status bar     | `src/main.ts`                            |
+| Estado del documento (`DocState`), dirty, decisión de cambio externo | `src/document.ts` (puro, con tests) |
+| Wrappers de `invoke`, ids del menú (`MENU_ACTION`) | `src/ipc.ts`                   |
 | Comportamiento del editor        | `src/editor.ts` (único que importa CodeMirror) |
 | Temas                            | `src/themes.ts` (agregar paleta + entrada en `THEMES`) |
-| IO, IPC, eventos del OS          | `src-tauri/src/lib.rs`                   |
+| IPC (comandos delgados), plugins, menú, eventos del OS | `src-tauri/src/lib.rs` |
+| Escritura atómica, symlinks, mtime | `src-tauri/src/fs_ops.rs` (puro, `&Path`, testeado) |
+| Qué abrir al arrancar / "Open with" (merge del `Opened`) | `src-tauri/src/startup.rs` (puro, testeado) |
 | Permisos IPC                     | `src-tauri/capabilities/default.json`    |
 | Ventana, bundle, file assoc.     | `src-tauri/tauri.conf.json`              |
 
 ## Invariantes críticos (romperlos = bug)
 
 1. `tauri-plugin-single-instance` se registra PRIMERO en el Builder.
-2. `write_file` es atómico (temp en mismo directorio + rename, preservando permisos). No simplificarlo a `fs::write`.
+2. `write_file` es atómico (temp en mismo directorio, creado con el modo del original, + `sync_all` + rename, preservando permisos). No simplificarlo a `fs::write` ni sacar el `sync_all` (trampas #40/#41).
 3. Toda apertura de archivo del frontend pasa por `openFile()` (guard de dirty + recientes). Excepciones deliberadas: `restoreSession()` y `reloadFromDisk()`.
-4. Tras cada guardado se llama `refreshMtime()`; sin eso el polling detecta el propio guardado como cambio externo.
+4. `write_file` devuelve el mtime resultante y `writeTo()` lo asigna a `doc.mtime` en el mismo tick que `dirty = false`. No volver a un `refreshMtime()` posterior al guardado: ese gap hacía que el polling detectara el propio guardado como cambio externo.
 5. `setText` (archivo nuevo, resetea undo) ≠ `replaceText` (mismo archivo recargado, preserva undo/cursor).
 6. `RunEvent::Opened` va con `#[cfg(target_os = "macos")]`; sin el guard no compila en Linux.
 7. Atajos que dependen de la tecla física usan `event.code` (en macOS, Alt+letra muta `event.key`).
 8. Claves de localStorage con prefijo `portable-editor:`; validar siempre lo que se lee (ver `isRecentEntry`). Acceder siempre vía `safeGetItem`/`safeSetItem` (`main.ts`), nunca `localStorage.*` directo — puede tirar (storage deshabilitado, cuota llena) y ya está guardado con try/catch ahí.
 9. `read_file` devuelve `{ contents, encoding, eol, mixed_eol, likely_binary }` (no un string pelado); `write_file` recibe `eol` y **siempre escribe UTF-8**, sin importar el encoding de origen. `eol` se decide por mayoría de línea (no "¿aparece CRLF en algún lado?" — eso convertía archivos mayormente LF con una sola línea CRLF colada); `mixed_eol` avisa en la status bar cuando el archivo mezclaba ambos estilos. `likely_binary` (byte NUL en los primeros 8000 bytes, heurística de git) es la única señal de que el fallback a Windows-1252 decodificó basura no-texto — decodificar nunca falla, así que no hay otra forma de detectarlo. El frontend pregunta antes de abrir si viene en `true` (`confirmOpenBinary` en `main.ts`, solo en `openFile()`, no en `restoreSession()`). Lógica de detección/codificación en `src-tauri/src/text_io.rs` (testeada con `cargo test`).
 10. `read_file` chequea el tamaño del archivo (metadata) **antes** de leerlo; por encima de 100 MB rechaza sin cargar nada a memoria. No reordenar esos dos pasos.
+11. Todo flujo async que muta `doc` (`main.ts`) captura `doc.gen` antes de su `await` y aborta con `isStale(gen)` si cambió. Cambiar de documento = `beginDocument()` DESPUÉS del último `await`, con las mutaciones de `doc.*` en el mismo bloque síncrono. No inventar chequeos ad hoc por `path`/`dirty` (trampa #37).
 
 ## Al terminar un cambio
 

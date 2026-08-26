@@ -27,6 +27,20 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 - Dos "Open With" casi simultáneos durante el arranque en frío (antes de que la ventana termine de cargar) ya no pisan uno al otro en silencio — se abre el primero y se avisa que el otro no se abrió, igual que la multi-selección (ver ROADMAP.md sección 7, ítem 13).
 - Copiar/cortar/pegar (`Mod+C`/`Mod+X`/`Mod+V`) no funcionaban en macOS, ni siquiera dentro del editor: faltaba un menú Edit nativo (`Cut`/`Copy`/`Paste`/`Select All`), sin el cual WKWebView no resuelve esos atajos.
 - `Mod+/` abría el panel de atajos en vez de comentar la línea (chocaba con el `toggleComment` de CodeMirror en las dos plataformas). El panel ahora usa `Mod+Shift+/`.
+- (macOS) Con la app ya abierta, el segundo "Open With" desde Finder ya no se ignora en silencio: cada uno abre su archivo (o pregunta antes de reemplazar). Regresión introducida en el fix del ítem 13 (ver ROADMAP.md sección 8, ítem 1).
+- (macOS) Un "Open With" que llegaba justo mientras la ventana terminaba de cargar ya no abre el mismo archivo dos veces (con un diálogo "¿reemplazar X por X?") (ver ROADMAP.md sección 8, ítem 1).
+- Abrir otro archivo justo mientras el editor estaba consultando el anterior en disco (ventana angosta, más ancha con archivos grandes) ya no puede mezclar datos: el archivo nuevo no hereda la fecha de modificación del viejo, no queda marcado "(deleted on disk)" si el viejo desapareció, ni recibe el contenido del viejo en el buffer (ver ROADMAP.md sección 8, ítem 2).
+- "Save As" ya no deja un recovery huérfano del archivo original: reabrirlo no ofrece "recuperar cambios" que ya se guardaron con el otro nombre (ver ROADMAP.md sección 8, ítem 3).
+- Si algo fallaba al arrancar (antes de restaurar la sesión), el editor quedaba toda la sesión sin detección de cambios externos ni autosave, sin avisar. Ahora esas redes se activan primero y el error de arranque se muestra (ver ROADMAP.md sección 8, ítem 4).
+- Una invocación CLI (`portable-editor x.txt`) que llegaba mientras la app todavía estaba restaurando la sesión anterior ya no corre en paralelo con esa restauración — espera su turno (ver ROADMAP.md sección 8, ítem 5).
+- Guardar ahora hace `fsync` del archivo temporal antes de reemplazar el original: un corte de luz justo después de guardar ya no puede dejar el archivo vacío (ver ROADMAP.md sección 8, ítem 6).
+- Al guardar un archivo con permisos restringidos (por ejemplo un `.env` 0600), el archivo temporal nace ya con esos permisos, en vez de quedar legible para todos durante unos milisegundos (ver ROADMAP.md sección 8, ítem 7).
+- Los snapshots de recovery (autosave) se guardan con permisos solo para el usuario (directorio 0700, archivos 0600) — antes una copia de cualquier archivo editado quedaba legible para otros usuarios de la máquina (ver ROADMAP.md sección 8, ítem 8).
+
+### Seguridad
+
+- Content Security Policy activa en el webview (antes `null`): bloquea scripts inline o remotos que una dependencia comprometida pudiera inyectar (ver ROADMAP.md sección 8, ítem 9).
+- Guardar ya no puede disparar, en una ventana de milisegundos, una recarga del propio archivo recién guardado (que dejaba una entrada fantasma en el historial de deshacer) (ver ROADMAP.md sección 8, ítem 12).
 - El fallback de tema corrupto en `localStorage` ahora usa `DEFAULT_THEME_ID` en vez de la primera entrada de la lista de temas — mismo resultado hoy, pero ya no depende del orden de esa lista (ver ROADMAP.md sección 7, ítem 14).
 - `detectIndent()` ya no escanea archivos grandes línea por línea sin límite — por encima de 10 MB asume la indentación por defecto en vez de potencialmente demorar la apertura (ver ROADMAP.md sección 7, ítem 15).
 - Reabrir la sesión anterior con el último archivo ya borrado o sin permisos ahora muestra un diálogo de error explicando qué pasó, en vez de un "untitled" vacío sin ninguna pista (ver ROADMAP.md sección 7, ítem 3).

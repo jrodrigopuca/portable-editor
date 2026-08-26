@@ -1,16 +1,22 @@
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { createEditor, PLAIN_TEXT_LABEL } from "./editor";
 import {
-  detectIndent,
-  type IndentInfo,
-  indentLabel,
-  indentUnitString,
-  nextIndentPreset,
-} from "./indent";
+  type DocState,
+  docFromFile,
+  docFromRecovery,
+  ENCODING_UTF8,
+  EXTERNAL_CHANGE,
+  emptyDoc,
+  externalChangeDecision,
+  fromDisk,
+  nextDirty,
+} from "./document";
+import { createEditor, PLAIN_TEXT_LABEL } from "./editor";
+import { indentLabel, indentUnitString, nextIndentPreset } from "./indent";
+import * as ipc from "./ipc";
+import { isMenuAction, MENU_ACTION, type StartupTarget } from "./ipc";
 import { basename } from "./paths";
 import { clampFontSize, FONT_DEFAULT, parseFontSize } from "./prefs";
 import {
@@ -83,28 +89,6 @@ const el = {
   btnCloseShortcuts: byId<HTMLButtonElement>("btn-close-shortcuts"),
 };
 
-const EOL = { LF: "LF", CRLF: "CRLF" } as const;
-type Eol = (typeof EOL)[keyof typeof EOL];
-const ENCODING_UTF8 = "UTF-8";
-
-/** Shape returned by the `read_file` command; see `src-tauri/src/text_io.rs`. */
-interface DecodedFile {
-  contents: string;
-  encoding: string;
-  eol: Eol;
-  mixed_eol: boolean;
-  likely_binary: boolean;
-}
-
-/** Shape of `startup_file`'s return and the `open-file` event payload. */
-interface StartupTarget {
-  path: string;
-  exists: boolean;
-  /** Other files handed to the OS "Open with..." at once, dropped because
-   * portable-editor only opens one — see notifyExtraFilesIgnored(). */
-  extra_ignored: number;
-}
-
 /** macOS "Open With" on a multi-selection hands the app every file at once;
  * only the first is opened (single-file identity), so this is the one place
  * the user learns the rest didn't just silently vanish. */
@@ -116,55 +100,43 @@ async function notifyExtraFilesIgnored(count: number): Promise<void> {
   );
 }
 
-interface DocState {
-  path: string | null;
-  dirty: boolean;
-  mtime: number | null;
-  encoding: string;
-  eol: Eol;
-  /** True when the file mixed LF and CRLF lines — `eol` is the majority, not the whole story. */
-  mixedEol: boolean;
-  /** True once a poll finds `path` gone (deleted or renamed elsewhere). */
-  missing: boolean;
-  indent: IndentInfo;
+// Mutable on purpose: every flow reads `doc` at the moment it needs it, and
+// the pure helpers in document.ts produce the next value it gets patched with.
+const doc: DocState = emptyDoc(null);
+
+/** Marks the buffer as a different document: every in-flight async flow that captured the previous generation must drop its result. */
+function beginDocument(): void {
+  doc.gen += 1;
 }
 
-const doc: DocState = {
-  path: null,
-  dirty: false,
-  mtime: null,
-  encoding: ENCODING_UTF8,
-  eol: EOL.LF,
-  mixedEol: false,
-  missing: false,
-  indent: detectIndent(""),
-};
-const lastCursor = { line: 1, col: 1 };
-// Content as of the last save/load — the baseline an undo/redo is compared
-// against so the dirty flag can clear itself on landing back on it, instead
-// of lying "unsaved" forever after. null for untitled files: there's no disk
-// state to return to, so undoing to empty still isn't "saved".
-let savedText: string | null = null;
+/** True if the buffer stopped being the document `gen` was captured from. */
+function isStale(gen: number): boolean {
+  return gen !== doc.gen;
+}
+
+/**
+ * The buffer becomes `next` — path, disk fields, cursor, all at once — and
+ * every in-flight async flow drops out (see beginDocument). Synchronous by
+ * design: callers must have finished their last await before this (invariant
+ * #11 in CLAUDE.md).
+ */
+function becomeDocument(next: DocState): void {
+  beginDocument();
+  Object.assign(doc, next, { gen: doc.gen });
+}
 let fontSize = parseFontSize(safeGetItem(FONT_KEY));
 let wrapOn = safeGetItem(WRAP_KEY) === "true";
 
 const editor = createEditor(el.editor, {
   onDocChanged: (text, isHistoryTraversal) => {
-    if (isHistoryTraversal && savedText !== null && text === savedText) {
-      if (doc.dirty) {
-        doc.dirty = false;
-        updateStatus();
-      }
-      return;
-    }
-    if (!doc.dirty) {
-      doc.dirty = true;
+    const dirty = nextDirty(doc, text, isHistoryTraversal);
+    if (dirty !== doc.dirty) {
+      doc.dirty = dirty;
       updateStatus();
     }
   },
   onCursorMoved: (line, col) => {
-    lastCursor.line = line;
-    lastCursor.col = col;
+    doc.cursor = { line, col };
     el.cursorPos.textContent = `Ln ${line}, Col ${col}`;
   },
 });
@@ -253,7 +225,7 @@ function forgetRecent(path: string): void {
 /** Persists the current file's cursor position into its recent-files entry. */
 function syncRecentCursor(): void {
   if (doc.path === null) return;
-  saveRecent(withCursor(loadRecent(), doc.path, lastCursor.line, lastCursor.col));
+  saveRecent(withCursor(loadRecent(), doc.path, doc.cursor.line, doc.cursor.col));
 }
 
 function renderRecent(): void {
@@ -281,7 +253,7 @@ function renderRecent(): void {
 async function clearRecovery(path: string | null): Promise<void> {
   if (path === null) return;
   try {
-    await invoke("clear_recovery", { path });
+    await ipc.clearRecovery(path);
   } catch {
     // ignore
   }
@@ -296,7 +268,7 @@ async function clearRecovery(path: string | null): Promise<void> {
 async function checkRecovery(path: string, diskContents: string): Promise<string> {
   let recovered: string | null;
   try {
-    recovered = await invoke<string | null>("read_recovery", { path });
+    recovered = await ipc.readRecovery(path);
   } catch {
     return diskContents;
   }
@@ -313,9 +285,11 @@ async function checkRecovery(path: string, diskContents: string): Promise<string
   return recovered;
 }
 
+/** Shared tail of every "a real file is now on screen" flow. `dirty` is
+ * left alone: docFromFile() already decided it (a recovered buffer starts
+ * dirty), and writeTo() cleared it before Save As gets here. */
 async function afterFileLoaded(path: string): Promise<void> {
   doc.path = path;
-  doc.dirty = false;
   doc.missing = false;
   updateStatus();
   rememberRecent(path);
@@ -328,16 +302,8 @@ async function newFile(): Promise<void> {
   if (!(await confirmDiscard())) return;
   void clearRecovery(doc.path);
   syncRecentCursor();
+  becomeDocument(emptyDoc(null));
   editor.setText("");
-  savedText = null; // untitled: no disk state for undo-to-clean to land on
-  doc.path = null;
-  doc.dirty = false;
-  doc.mtime = null;
-  doc.encoding = ENCODING_UTF8;
-  doc.eol = EOL.LF;
-  doc.mixedEol = false;
-  doc.missing = false;
-  doc.indent = detectIndent("");
   updateStatus();
   await applyLanguage();
   applyIndent();
@@ -356,23 +322,11 @@ async function openNewFileAt(path: string, external = false): Promise<void> {
   void clearRecovery(doc.path);
   syncRecentCursor();
   const contents = await checkRecovery(path, "");
+  becomeDocument(docFromRecovery(path, contents));
   editor.setText(contents);
-  savedText = null; // path doesn't exist on disk yet — nothing to undo back to
-  doc.path = path;
-  doc.dirty = false;
-  doc.mtime = null;
-  doc.encoding = ENCODING_UTF8;
-  doc.eol = EOL.LF;
-  doc.mixedEol = false;
-  doc.missing = false;
-  doc.indent = detectIndent(contents);
   updateStatus();
   await applyLanguage();
   applyIndent();
-  if (contents !== "") {
-    doc.dirty = true;
-    updateStatus();
-  }
   editor.focus();
 }
 
@@ -383,23 +337,19 @@ async function openFile(presetPath?: string, external = false): Promise<void> {
   if (typeof path !== "string") return;
 
   try {
-    const file = await invoke<DecodedFile>("read_file", { path });
+    const file = await ipc.readFile(path);
     if (file.likely_binary && !(await confirmOpenBinary(path))) return;
     void clearRecovery(doc.path);
     syncRecentCursor();
-    doc.encoding = file.encoding;
-    doc.eol = file.eol;
-    doc.mixedEol = file.mixed_eol;
+    // checkRecovery() may sit on a dialog for a while: don't touch `doc`
+    // before it resolves, or a poll reloading the OLD file meanwhile would
+    // overwrite these fields. Everything from here to afterFileLoaded() is
+    // synchronous — one atomic "become another document" step.
     const contents = await checkRecovery(path, file.contents);
-    doc.indent = detectIndent(contents);
+    becomeDocument(docFromFile(path, file, contents));
     editor.setText(contents);
-    savedText = file.contents; // the disk baseline, not the recovered content
     applyIndent();
     await afterFileLoaded(path);
-    if (contents !== file.contents) {
-      doc.dirty = true;
-      updateStatus();
-    }
     editor.focus();
   } catch (err) {
     await message(String(err), { title: APP_NAME, kind: "error" });
@@ -412,21 +362,13 @@ async function restoreSession(): Promise<void> {
   const [last] = loadRecent();
   if (last === undefined) return;
   try {
-    const file = await invoke<DecodedFile>("read_file", { path: last.path });
-    doc.encoding = file.encoding;
-    doc.eol = file.eol;
-    doc.mixedEol = file.mixed_eol;
+    const file = await ipc.readFile(last.path);
     const contents = await checkRecovery(last.path, file.contents);
-    doc.indent = detectIndent(contents);
+    becomeDocument(docFromFile(last.path, file, contents)); // same ordering rationale as openFile()
     editor.setText(contents);
-    savedText = file.contents; // the disk baseline, not the recovered content
     applyIndent();
     await afterFileLoaded(last.path);
     editor.setCursor(last.line, last.col);
-    if (contents !== file.contents) {
-      doc.dirty = true;
-      updateStatus();
-    }
   } catch (err) {
     await message(String(err), { title: APP_NAME, kind: "error" });
     forgetRecent(last.path);
@@ -444,24 +386,31 @@ async function saveFile(): Promise<void> {
   // was never real text to begin with (see confirmOpenBinary) — a reflexive
   // Mod+S with no edits must not re-encode and clobber it.
   if (!doc.dirty) return;
-  if (await writeTo(doc.path)) {
-    updateStatus();
-    await refreshMtime();
-  }
+  if (await writeTo(doc.path)) updateStatus();
 }
 
 async function saveFileAs(): Promise<void> {
   const path = await saveDialog({ title: "Save as", defaultPath: doc.path ?? undefined });
   if (path === null) return;
-  if (await writeTo(path)) await afterFileLoaded(path);
+  const previousPath = doc.path;
+  if (!(await writeTo(path))) return;
+  // writeTo() cleared the recovery for the NEW path; the old one (written by
+  // autosaveTick while this doc was dirty) would otherwise linger and offer
+  // "recover?" content the user already saved elsewhere.
+  if (previousPath !== path) void clearRecovery(previousPath);
+  beginDocument(); // same buffer, different identity: in-flight polls on the old path must drop out
+  await afterFileLoaded(path);
 }
 
 async function writeTo(path: string): Promise<boolean> {
   try {
     const contents = editor.getText();
-    await invoke("write_file", { path, contents, eol: doc.eol });
+    const mtime = await ipc.writeFile(path, contents, doc.eol);
+    // Recorded in the same tick as dirty=false: a poll between "written"
+    // and "mtime known" used to see our own save as an external change.
+    doc.mtime = mtime;
     doc.dirty = false;
-    savedText = contents;
+    doc.savedText = contents;
     // Save policy: always UTF-8 on disk, regardless of the source encoding.
     doc.encoding = ENCODING_UTF8;
     void clearRecovery(path);
@@ -480,7 +429,7 @@ async function refreshMtime(): Promise<void> {
     return;
   }
   try {
-    doc.mtime = await invoke<number>("file_mtime", { path: doc.path });
+    doc.mtime = await ipc.fileMtime(doc.path);
   } catch {
     doc.mtime = null;
   }
@@ -498,8 +447,13 @@ async function confirmReloadDiscard(): Promise<boolean> {
 
 async function reloadFromDisk(): Promise<void> {
   if (doc.path === null) return;
+  const gen = doc.gen;
   const dirtyBeforeRead = doc.dirty;
-  const file = await invoke<DecodedFile>("read_file", { path: doc.path });
+  const file = await ipc.readFile(doc.path);
+  // The user opened another file while this read was in flight: what we
+  // hold is the OLD document's contents. Writing it into the new buffer
+  // would be silent data corruption — drop it, the new doc has its own poll.
+  if (isStale(gen)) return;
   // The read above is the only await in here — if the user typed while it
   // was in flight, doc.dirty flips to true DURING this call, with no caller
   // aware of it. Silently overwriting would discard that edit with nothing
@@ -508,14 +462,12 @@ async function reloadFromDisk(): Promise<void> {
   // confirmed discarding (checkExternalChange's dirty branch), doc.dirty
   // was already true going in, so this is a no-op for that path.
   if (!dirtyBeforeRead && doc.dirty && !(await confirmReloadDiscard())) return;
-  doc.encoding = file.encoding;
-  doc.eol = file.eol;
-  doc.mixedEol = file.mixed_eol;
-  doc.indent = detectIndent(file.contents);
+  if (isStale(gen)) return; // the dialog above is a second gap
+  // replaceText() fires onDocChanged (a plain edit → dirty), so the disk
+  // fields go in AFTER it: same identity, fresh contents, clean.
   editor.replaceText(file.contents);
-  savedText = file.contents;
+  Object.assign(doc, fromDisk(file, file.contents));
   applyIndent();
-  doc.dirty = false;
   updateStatus();
   // Disk now matches memory: any pending recovery snapshot is stale.
   void clearRecovery(doc.path);
@@ -533,7 +485,7 @@ async function autosaveTick(): Promise<void> {
   if (doc.path === null || !doc.dirty) return;
   const path = doc.path;
   try {
-    await invoke("save_recovery", { path, contents: editor.getText() });
+    await ipc.saveRecovery(path, editor.getText());
     // A real save can complete while the write above was in flight —
     // writeTo() already clears the recovery file for `path`, but that clear
     // can finish BEFORE this (now-stale) write lands, leaving a pre-save
@@ -552,24 +504,45 @@ let checkingExternal = false;
 async function checkExternalChange(): Promise<void> {
   if (checkingExternal || doc.path === null || doc.mtime === null) return;
   checkingExternal = true;
+  const gen = doc.gen;
   try {
-    const mtime = await invoke<number>("file_mtime", { path: doc.path });
-    if (doc.missing) {
+    // Deleted, renamed, or temporarily unreadable → null: no dialog for
+    // that, just a flag (MISSING below) so the next save asks where to put
+    // the file instead of silently writing to a path that's no longer there.
+    let mtime: number | null;
+    try {
+      mtime = await ipc.fileMtime(doc.path);
+    } catch {
+      mtime = null;
+    }
+    // Stat of the OLD path landed after the user switched documents: its
+    // mtime (or its failure) says nothing about this doc.
+    if (isStale(gen)) return;
+    if (mtime !== null && doc.missing) {
       // Reappeared (e.g. another app's own atomic rename finished mid-poll).
       doc.missing = false;
       updateStatus();
     }
-    if (mtime === doc.mtime) return;
-    doc.mtime = mtime; // recorded: don't prompt again for the same change
-    if (!doc.dirty) {
-      await reloadFromDisk();
-      return;
+    switch (externalChangeDecision(mtime, doc)) {
+      case EXTERNAL_CHANGE.NOOP:
+        return;
+      case EXTERNAL_CHANGE.MISSING:
+        doc.missing = true;
+        updateStatus();
+        return;
+      case EXTERNAL_CHANGE.RELOAD:
+        doc.mtime = mtime; // recorded: don't prompt again for the same change
+        await reloadFromDisk();
+        return;
+      case EXTERNAL_CHANGE.ASK:
+        doc.mtime = mtime;
+        if (await confirmReloadDiscard()) await reloadFromDisk();
+        return;
     }
-    if (await confirmReloadDiscard()) await reloadFromDisk();
   } catch {
-    // Deleted, renamed, or temporarily unreadable: don't nag with a dialog,
-    // just flag it so the next save asks where to put the file instead of
-    // silently writing to a path that's no longer there.
+    // The file vanished between the stat and reloadFromDisk()'s read: same
+    // treatment as a failed stat.
+    if (isStale(gen)) return; // the OLD path vanished, not this one
     if (!doc.missing) {
       doc.missing = true;
       updateStatus();
@@ -691,7 +664,7 @@ function closeShortcuts(): void {
 /** Help → "Install 'portable-editor' Command" (macOS only; see lib.rs). */
 async function installCliCommand(): Promise<void> {
   try {
-    const result = await invoke<string>("install_cli_command");
+    const result = await ipc.installCliCommand();
     await message(result, { title: APP_NAME });
   } catch (err) {
     await message(String(err), { title: APP_NAME, kind: "error" });
@@ -788,23 +761,25 @@ void listen<StartupTarget>("open-file", (event) => {
 
 // Native File menu clicks/accelerators (see src-tauri/src/lib.rs build_menu)
 void listen<string>("menu-action", (event) => {
-  switch (event.payload) {
-    case "new":
+  const action = event.payload;
+  if (!isMenuAction(action)) return;
+  switch (action) {
+    case MENU_ACTION.NEW:
       void newFile();
       break;
-    case "open":
+    case MENU_ACTION.OPEN:
       void openFile();
       break;
-    case "save":
+    case MENU_ACTION.SAVE:
       void saveFile();
       break;
-    case "save_as":
+    case MENU_ACTION.SAVE_AS:
       void saveFileAs();
       break;
-    case "shortcuts":
+    case MENU_ACTION.SHORTCUTS:
       openShortcuts();
       break;
-    case "install-cli":
+    case MENU_ACTION.INSTALL_CLI:
       void installCliCommand();
       break;
   }
@@ -822,20 +797,34 @@ async function init(): Promise<void> {
   initThemes();
   renderRecent();
   renderShortcuts();
-  const startup = await invoke<StartupTarget | null>("startup_file");
-  if (startup !== null) {
-    await (startup.exists ? openFile(startup.path, true) : openNewFileAt(startup.path, true));
-    await notifyExtraFilesIgnored(startup.extra_ignored);
-  } else {
-    updateStatus();
-    await applyLanguage();
-    await restoreSession();
-  }
+  // The safety nets go up BEFORE anything that can throw: if startup_file
+  // rejected with these registered after it, the whole session would run
+  // with no external-change polling and no autosave, and no visible symptom.
+  // Both are no-ops until a document with a path exists, so there's nothing
+  // to gain by delaying them.
   window.setInterval(() => void checkExternalChange(), MTIME_POLL_MS);
   window.setInterval(() => void autosaveTick(), AUTOSAVE_INTERVAL_MS);
   window.addEventListener("focus", () => void checkExternalChange());
+  try {
+    const startup = await ipc.startupFile();
+    if (startup !== null) {
+      await (startup.exists ? openFile(startup.path, true) : openNewFileAt(startup.path, true));
+      await notifyExtraFilesIgnored(startup.extra_ignored);
+    } else {
+      updateStatus();
+      await applyLanguage();
+      await restoreSession();
+    }
+  } catch (err) {
+    await message(String(err), { title: APP_NAME, kind: "error" });
+  }
   editor.focus();
-  void invoke("signal_ready");
+  void ipc.signalReady();
 }
 
-void init();
+// init() opens/restores a document outside openFileQueue, and the open-file
+// listener above is live from module evaluation — so a single-instance CLI
+// invocation landing during startup would otherwise run concurrently with
+// restoreSession(). Seeding the queue with init() makes startup the first
+// item in the same serial chain: every open-file event waits its turn.
+openFileQueue = init();

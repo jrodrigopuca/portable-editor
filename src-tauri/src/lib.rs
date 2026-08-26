@@ -1,16 +1,14 @@
-use serde::Serialize;
+use std::io::Write;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::time::UNIX_EPOCH;
+use std::sync::atomic::Ordering;
 
+mod fs_ops;
 mod recovery;
+mod startup;
 mod text_io;
+use startup::{resolve_open_arg, PendingFile, StartupTarget};
 use text_io::DecodedFile;
-
-/// File received via the OS "Open with..." (macOS Opened event) before the
-/// frontend is ready to listen for it. Holds the full `StartupTarget` (not
-/// just the path) so `extra_ignored` survives the trip to `startup_file()`.
-struct PendingFile(Mutex<Option<StartupTarget>>);
 
 /// Reads the whole file, detecting its encoding (BOM, else UTF-8, else
 /// Windows-1252 fallback) and line ending style. See `text_io`.
@@ -27,48 +25,16 @@ fn read_file(path: String) -> Result<DecodedFile, String> {
     Ok(text_io::decode_file(&bytes))
 }
 
-/// Atomic write: temp file in the same directory + rename (atomic on POSIX),
-/// so a crash mid-write never leaves the file corrupted. Always writes UTF-8,
-/// restoring the given line ending convention (see `text_io::encode_with_eol`).
-///
-/// Writes through symlinks instead of replacing them: `rename()` on a
-/// symlink target replaces the link itself, which would silently disconnect
-/// dotfiles managed with Stow/chezmoi/Nix from their real file.
+/// Atomic save (temp + fsync + rename, through symlinks, permissions
+/// preserved — see `fs_ops::write_atomic`). Always writes UTF-8, restoring
+/// the given line ending convention (see `text_io::encode_with_eol`).
+/// Returns the saved file's mtime (ms) so the frontend can record it in the
+/// same tick as `doc.dirty = false`.
 #[tauri::command]
-fn write_file(path: String, contents: String, eol: String) -> Result<(), String> {
-    let target = resolve_symlink_target(&PathBuf::from(&path));
-    let tmp = tmp_path(&target);
+fn write_file(path: String, contents: String, eol: String) -> Result<u64, String> {
     let bytes = text_io::encode_with_eol(&contents, &eol);
-    std::fs::write(&tmp, &bytes).map_err(|e| format!("Could not save {path}: {e}"))?;
-    if let Ok(meta) = std::fs::metadata(&target) {
-        let _ = std::fs::set_permissions(&tmp, meta.permissions());
-    }
-    std::fs::rename(&tmp, &target).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("Could not save {path}: {e}")
-    })
-}
-
-/// If `path` is a symlink, resolves it to the file it ultimately points to.
-/// Falls back to `path` itself otherwise: not a symlink, doesn't exist yet
-/// (new file), or a broken link (`canonicalize` fails) — in the broken-link
-/// case this deliberately replaces the dangling link with a real file rather
-/// than erroring out.
-fn resolve_symlink_target(path: &Path) -> PathBuf {
-    match std::fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_symlink() => {
-            std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-        }
-        _ => path.to_path_buf(),
-    }
-}
-
-fn tmp_path(target: &Path) -> PathBuf {
-    let name = target
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    target.with_file_name(format!(".{name}.portable-editor.tmp"))
+    fs_ops::write_atomic(Path::new(&path), &bytes)
+        .map_err(|e| format!("Could not save {path}: {e}"))
 }
 
 fn recovery_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -79,6 +45,11 @@ fn recovery_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| e.to_string())?
         .join("recovery");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    // Snapshots of ANY dirty buffer land here — including a 0600 secrets
+    // file the user happened to edit — outside that file's own directory,
+    // so the directory has to be the user's alone. Applied on every call:
+    // it also tightens a directory created by an older version.
+    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
     Ok(dir)
 }
 
@@ -89,7 +60,15 @@ fn recovery_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 #[tauri::command]
 fn save_recovery(app: tauri::AppHandle, path: String, contents: String) -> Result<(), String> {
     let dir = recovery_dir(&app)?;
-    std::fs::write(dir.join(recovery::recovery_key(&path)), contents).map_err(|e| e.to_string())
+    // 0600 from creation, for the same reason recovery_dir() is 0700.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(dir.join(recovery::recovery_key(&path)))
+        .and_then(|mut f| f.write_all(contents.as_bytes()))
+        .map_err(|e| e.to_string())
 }
 
 /// The recovered contents for `path`, if a recovery file exists for it.
@@ -131,13 +110,7 @@ fn signal_ready() {
 /// Mtime in milliseconds; the frontend polls it to detect external changes.
 #[tauri::command]
 fn file_mtime(path: String) -> Result<u64, String> {
-    let modified = std::fs::metadata(&path)
-        .and_then(|m| m.modified())
-        .map_err(|e| e.to_string())?;
-    Ok(modified
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_millis() as u64)
+    fs_ops::mtime_ms(Path::new(&path)).map_err(|e| e.to_string())
 }
 
 /// Builds the File menu (New/Open/Save/Save As), a macOS-only Edit menu
@@ -273,47 +246,18 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-/// A path to open on startup or via "Open with...", plus whether it already
-/// exists — `false` means "create a new file here" (e.g. `portable-editor
-/// notes.md` where notes.md doesn't exist yet, same as vim/nano/code) — and
-/// how many OTHER files handed to us at the same time were dropped, since
-/// portable-editor only ever opens one (see `extra_ignored` where it's set).
-#[derive(Serialize, Clone)]
-struct StartupTarget {
-    path: String,
-    exists: bool,
-    extra_ignored: usize,
-}
-
-/// Resolves a CLI argument to an absolute path relative to `base_dir`,
-/// without requiring the file to exist. Plain `canonicalize()` fails (and
-/// used to be silently swallowed here) for a file that doesn't exist yet —
-/// the normal "create a new file at this path" flow every terminal editor
-/// supports — so this falls back to `std::path::absolute` in that case.
-fn resolve_open_arg(base_dir: &Path, arg: &str) -> Option<StartupTarget> {
-    let candidate = base_dir.join(arg);
-    if let Ok(canon) = candidate.canonicalize() {
-        return Some(StartupTarget {
-            path: canon.to_string_lossy().into_owned(),
-            exists: true,
-            extra_ignored: 0,
-        });
-    }
-    let absolute = std::path::absolute(&candidate).ok()?;
-    Some(StartupTarget {
-        path: absolute.to_string_lossy().into_owned(),
-        exists: false,
-        extra_ignored: 0,
-    })
-}
-
 /// File to open on startup: whatever arrived via the OS "Open with..." first
 /// (always an existing file — the OS wouldn't hand us one that isn't),
 /// otherwise the first CLI argument (`portable-editor file.txt`), which may
 /// not exist yet.
 #[tauri::command]
 fn startup_file(pending: tauri::State<PendingFile>) -> Option<StartupTarget> {
-    if let Some(target) = pending.0.lock().unwrap().take() {
+    // Take the slot BEFORE flipping the flag: an `Opened` event racing this
+    // call either lands in the slot (and is returned here) or sees the flag
+    // and emits — never both, never neither.
+    let stashed = pending.slot.lock().unwrap().take();
+    pending.frontend_ready.store(true, Ordering::SeqCst);
+    if let Some(target) = stashed {
         return Some(target);
     }
     let arg = std::env::args().nth(1)?;
@@ -411,7 +355,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .manage(PendingFile(Mutex::new(None)))
+        .manage(PendingFile::new())
         .setup(|app| {
             build_menu(app)?;
             Ok(())
@@ -444,26 +388,23 @@ pub fn run() {
                 if let Some(path) = paths.next() {
                     let extra_this_event = paths.count();
                     let pending_state = app.state::<PendingFile>();
-                    let mut pending = pending_state.0.lock().unwrap();
-                    if let Some(existing) = pending.as_mut() {
-                        // A second Opened event landed before the frontend's
-                        // single startup_file() poll consumed the first one
-                        // (cold-start race — e.g. two near-simultaneous
-                        // double-clicks in Finder before the webview finishes
-                        // loading). Nobody has an `open-file` listener yet
-                        // either way, so there's no point emitting this one.
-                        // Keep the first target (first-come-first-served,
-                        // same tiebreak as within one event) and fold this
-                        // whole event's files into extra_ignored so the count
-                        // the user eventually sees isn't silently short.
-                        existing.extra_ignored += 1 + extra_this_event;
-                    } else {
-                        let target = StartupTarget {
-                            path: path.to_string_lossy().into_owned(),
-                            exists: true,
-                            extra_ignored: extra_this_event,
-                        };
-                        *pending = Some(target.clone());
+                    // Emit vs stash vs merge is decided by `frontend_ready`
+                    // (trampa #32) — the whole decision lives in
+                    // `startup::merge_opened`, under test. Hold the slot
+                    // lock across the check so an `Opened` racing
+                    // `startup_file()` lands on exactly one side of it.
+                    let to_emit = {
+                        let mut pending = pending_state.slot.lock().unwrap();
+                        startup::merge_opened(
+                            &mut pending,
+                            pending_state.frontend_ready.load(Ordering::SeqCst),
+                            path.to_string_lossy().into_owned(),
+                            extra_this_event,
+                        )
+                    };
+                    if let Some(target) = to_emit {
+                        // App already running: emit and let openFileQueue
+                        // serialize it (trampa #23).
                         let _ = app.emit("open-file", target);
                     }
                 }

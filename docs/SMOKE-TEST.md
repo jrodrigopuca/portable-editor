@@ -26,6 +26,7 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] Editar un archivo sin guardar, esperar >10s, matar el proceso (`kill -9`, no cerrar normal) → reabrir el mismo archivo pregunta si recuperar; aceptar muestra el contenido editado con el punto de "sin guardar"; guardar limpia el recovery
 - [ ] (Solo bundle instalado) "Open with..." desde Finder/file manager funciona
 - [ ] (macOS, bundle instalado) Seleccionar 2+ archivos en Finder → "Open With" → portable-editor: abre el primero y muestra un diálogo avisando cuántos no se abrieron
+- [ ] (macOS, bundle instalado) Con la app YA abierta: "Open With" sobre A (abre) y después "Open With" sobre B → B abre (o pregunta si reemplazar, si había cambios). Antes el segundo se tragaba en silencio
 - [ ] Abrir un `.ts` o `.py` → highlighting correcto y lenguaje en la status bar
 
 ## Robustez

@@ -31,6 +31,11 @@ jobs:
       - name: Unit tests
         run: npx vitest run
 
+      # tsc alone doesn't exercise Vite's bundling; until now the first real
+      # bundle happened at release time, on a tag.
+      - name: Production bundle
+        run: npx vite build
+
   rust:
     runs-on: ubuntu-22.04
     steps:
@@ -60,6 +65,36 @@ jobs:
       - name: Format check
         run: cargo fmt --check
         working-directory: src-tauri
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
+
+      - name: Unit tests
+        run: cargo test
+        working-directory: src-tauri
+
+  # Everything under #[cfg(target_os = "macos")] — the RunEvent::Opened
+  # handler, install_cli_command, the macOS menu branches — is invisible to
+  # the Linux job. Without this leg those blocks are first compiled on a
+  # release tag. No bundle, no signing: clippy + tests only.
+  rust-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Stub frontend dist
+        run: mkdir -p dist && echo '<!doctype html>' > dist/index.html
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings

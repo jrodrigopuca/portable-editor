@@ -53,7 +53,7 @@ jobs:
           workspaces: src-tauri
 
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci # same lockfile resolution CI validated — never `npm install` here
 
       - name: Build and upload to draft release
         uses: tauri-apps/tauri-action@v0
