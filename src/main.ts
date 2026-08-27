@@ -17,7 +17,7 @@ import {
 } from "./document";
 import { createEditor, PLAIN_TEXT_LABEL } from "./editor";
 import { indentLabel, indentUnitString, nextIndentPreset } from "./indent";
-import { errorMessage, IO_ERROR_KIND, IO_OPERATION, isIoError, PLATFORM } from "./io-error";
+import { errorMessage, IO_OPERATION, isUnreachable, PLATFORM } from "./io-error";
 import * as ipc from "./ipc";
 import { isMenuAction, MENU_ACTION, type StartupTarget } from "./ipc";
 import { basename } from "./paths";
@@ -447,7 +447,7 @@ async function runOpenFile(presetPath?: string, external = false): Promise<void>
     editor.focus();
   } catch (err) {
     await message(readErrorMessage(err, path), { title: APP_NAME, kind: "error" });
-    if (isGone(err)) forgetRecent(path);
+    if (isUnreachable(err)) forgetRecent(path);
   } finally {
     updateStatus(); // whatever happened, the name slot shows the truth again
   }
@@ -456,13 +456,7 @@ async function runOpenFile(presetPath?: string, external = false): Promise<void>
 /** The dialog for a failed read: the error, plus the one side effect it has. */
 function readErrorMessage(err: unknown, path: string): string {
   const base = errorMessage(err, path, IO_OPERATION.READ, platform);
-  return isGone(err) ? `${base} It was removed from Recent.` : base;
-}
-
-/** Only a file that no longer exists deserves eviction from Recent — a
- * too-large log or a not-yet-mounted volume is still worth remembering. */
-function isGone(err: unknown): boolean {
-  return isIoError(err) && err.kind === IO_ERROR_KIND.NOT_FOUND;
+  return isUnreachable(err) ? `${base} It was removed from Recent.` : base;
 }
 
 /** Reopens the last file from the previous session, at the same position. */
@@ -479,7 +473,7 @@ async function restoreSession(): Promise<void> {
     editor.setCursor(last.line, last.col);
   } catch (err) {
     await message(readErrorMessage(err, last.path), { title: APP_NAME, kind: "error" });
-    if (isGone(err)) forgetRecent(last.path);
+    if (isUnreachable(err)) forgetRecent(last.path);
   }
 }
 

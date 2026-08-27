@@ -5,6 +5,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 ## [Sin publicar]
 
+### Corregido
+
+- Al restaurar la última sesión, un archivo en una carpeta sin permiso concedido en macOS (TCC — Documentos, Escritorio o Descargas) ya no muestra el mismo diálogo de error en cada arranque: se elimina de Recientes igual que un archivo movido o borrado, en vez de reintentarse para siempre.
+
 ## [0.3.0] - 2026-08-26
 
 ### Agregado

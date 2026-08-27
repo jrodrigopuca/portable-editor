@@ -5,6 +5,7 @@ import {
   IO_ERROR_KIND,
   IO_OPERATION,
   isIoError,
+  isUnreachable,
   PLATFORM,
 } from "./io-error";
 
@@ -83,6 +84,28 @@ describe("describeIoError", () => {
     expect(describeIoError(err, "/x", IO_OPERATION.SAVE, PLATFORM.LINUX)).toBe(
       "Could not save /x: Is a directory (os error 21)",
     );
+  });
+});
+
+describe("isUnreachable", () => {
+  it("a missing file is unreachable — it will never come back at this path", () => {
+    expect(isUnreachable({ kind: IO_ERROR_KIND.NOT_FOUND })).toBe(true);
+  });
+
+  it("a permission-denied folder is unreachable too — on macOS, TCC doesn't clear on its own", () => {
+    // Regression: restoreSession() retries the last file on EVERY launch;
+    // without this, a TCC-denied folder meant a blocking dialog forever.
+    expect(isUnreachable({ kind: IO_ERROR_KIND.PERMISSION_DENIED })).toBe(true);
+  });
+
+  it("too_large and other stay reachable — they can resolve without the user visiting Settings", () => {
+    expect(isUnreachable({ kind: IO_ERROR_KIND.TOO_LARGE, size: 1, limit: 1 })).toBe(false);
+    expect(isUnreachable({ kind: IO_ERROR_KIND.OTHER, message: "x" })).toBe(false);
+  });
+
+  it("a non-IoError is never unreachable (non-IO commands reject with plain strings)", () => {
+    expect(isUnreachable("boom")).toBe(false);
+    expect(isUnreachable(new Error("boom"))).toBe(false);
   });
 });
 

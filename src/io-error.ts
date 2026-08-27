@@ -109,6 +109,24 @@ export function describeIoError(
 }
 
 /**
+ * A file the app has no way to reach again by itself: it's gone
+ * (`not_found`), or an entire folder is denied to it (`permission_denied` —
+ * on macOS this is almost always TCC, and TCC does NOT clear on its own;
+ * the user has to visit System Settings). Both mean every future attempt —
+ * including an automatic one like `restoreSession()` retrying on every
+ * launch — fails exactly the same way, forever, until the user acts outside
+ * the app. `too_large` and `other` are excluded on purpose: a shrinking log
+ * file or a volume that gets (re)mounted resolve without the user touching
+ * Settings, so the entry is still worth keeping in Recent for that case.
+ */
+export function isUnreachable(err: unknown): boolean {
+  return (
+    isIoError(err) &&
+    (err.kind === IO_ERROR_KIND.NOT_FOUND || err.kind === IO_ERROR_KIND.PERMISSION_DENIED)
+  );
+}
+
+/**
  * Message for whatever an ipc wrapper rejected with: a typed `IoError` from
  * a file-IO command gets its sentence; anything else (non-IO commands still
  * reject with plain strings, and `String(err)` covers unexpected shapes too).
