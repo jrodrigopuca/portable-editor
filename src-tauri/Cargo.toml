@@ -1,6 +1,6 @@
 [package]
 name = "portable-editor"
-version = "0.3.0"
+version = "0.3.1"
 description = "Minimalist text editor for devs (Linux/macOS)"
 authors = ["juan"]
 edition = "2021"

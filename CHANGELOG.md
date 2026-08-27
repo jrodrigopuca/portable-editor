@@ -5,6 +5,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 ## [Sin publicar]
 
+## [0.3.1] - 2026-08-27
+
 ### Agregado
 
 - `Cmd/Ctrl+Q` cierra la app (antes no hacía nada, a propósito, para no saltarse el aviso de cambios sin guardar): ahora tiene su propio ítem de menú "Quit" que pasa por el mismo diálogo que el botón rojo de la ventana.
