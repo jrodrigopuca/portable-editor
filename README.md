@@ -54,6 +54,7 @@ brew install --cask portable-editor
 | `Mod + D`                         | Seleccionar siguiente ocurrencia |
 | `Alt + Z`                         | Word wrap on/off    |
 | `Mod + Shift + /`                 | Mostrar atajos de teclado |
+| `Mod + Q`                         | Salir |
 
 ## Abrir archivos
 

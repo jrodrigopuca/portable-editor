@@ -981,6 +981,12 @@ void listen<string>("menu-action", (event) => {
     case MENU_ACTION.INSTALL_CLI:
       void installCliCommand();
       break;
+    case MENU_ACTION.QUIT:
+      // close(), not destroy(): fires onCloseRequested, same guard as the
+      // red button and the Dock's Quit — Cmd/Ctrl+Q isn't a shortcut to
+      // skip the unsaved-changes check, it's just another way to ask.
+      void appWindow.close();
+      break;
   }
 });
 

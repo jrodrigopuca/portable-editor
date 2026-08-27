@@ -163,17 +163,22 @@ async fn file_mtime(path: String) -> Result<u64, IoError> {
     Ok(fs_ops::mtime_ms(Path::new(&path))?)
 }
 
-/// Builds the File menu (New/Open/Save/Save As), a macOS-only Edit menu
-/// (Cut/Copy/Paste/Select All — see below), and a Help menu: Keyboard
-/// Shortcuts (opens the in-app panel) everywhere; macOS also gets "Install
-/// CLI Command" (see `install_cli_command`), with About moved to the
-/// app-name menu instead (macOS convention) — other platforms get About in
-/// Help, since there's no package-manager PATH gap to fix there.
+/// Builds the File menu (New/Open/Save/Save As, plus Quit on non-macOS), a
+/// macOS-only Edit menu (Cut/Copy/Paste/Select All — see below), and a Help
+/// menu: Keyboard Shortcuts (opens the in-app panel) everywhere; macOS also
+/// gets "Install CLI Command" (see `install_cli_command`), with About AND
+/// Quit moved to the app-name menu instead (macOS convention) — other
+/// platforms get About in Help, since there's no package-manager PATH gap
+/// to fix there.
 ///
-/// No Quit item: Tauri's PredefinedMenuItem::quit bypasses onCloseRequested
-/// and skips the unsaved-changes guard — see docs/ARCHITECTURE.md. No
-/// Undo/Redo in Edit: CodeMirror owns those via its own state-based history,
-/// not the OS undo manager.
+/// Quit is a CUSTOM item (id "quit"), not Tauri's `PredefinedMenuItem::quit`:
+/// the predefined one calls the OS's terminate-the-app path directly,
+/// bypassing `onCloseRequested` and its unsaved-changes guard entirely. The
+/// custom item instead asks `main.ts` to call `window.close()`, which DOES
+/// fire `onCloseRequested` (`destroy()` is the one that skips it) — so
+/// Cmd/Ctrl+Q goes through the exact same confirm-discard path as the red
+/// close button. No Undo/Redo in Edit: CodeMirror owns those via its own
+/// state-based history, not the OS undo manager.
 ///
 /// Each item's accelerator makes the native menu the single owner of that
 /// shortcut; the equivalent keys are deliberately absent from the JS keydown
@@ -196,14 +201,25 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
     let save_as_item = MenuItemBuilder::with_id("save_as", "Save As…")
         .accelerator("CmdOrCtrl+Shift+S")
         .build(app)?;
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit")
+        .accelerator("CmdOrCtrl+Q")
+        .build(app)?;
 
-    let file_menu = SubmenuBuilder::new(app, "File")
+    // macOS puts Quit in the app-name menu (HIG convention, wired below);
+    // everywhere else it's the last File item, GTK convention — hence the
+    // mut only being used under that cfg.
+    #[cfg_attr(target_os = "macos", allow(unused_mut))]
+    let mut file_menu_builder = SubmenuBuilder::new(app, "File")
         .item(&new_item)
         .item(&open_item)
         .separator()
         .item(&save_item)
-        .item(&save_as_item)
-        .build()?;
+        .item(&save_as_item);
+    #[cfg(not(target_os = "macos"))]
+    {
+        file_menu_builder = file_menu_builder.separator().item(&quit_item);
+    }
+    let file_menu = file_menu_builder.build()?;
 
     // Version shown in the About panel comes straight from Cargo.toml at
     // compile time — never goes stale when the version is bumped for a release.
@@ -231,6 +247,8 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
             PredefinedMenuItem::about(app, Some("About portable-editor"), Some(about_metadata))?;
         let app_menu = SubmenuBuilder::new(app, "portable-editor")
             .item(&about_item)
+            .separator()
+            .item(&quit_item)
             .build()?;
         menu_builder = menu_builder.item(&app_menu);
     }

@@ -32,6 +32,7 @@ export const MENU_ACTION = {
   SAVE_AS: "save_as",
   SHORTCUTS: "shortcuts",
   INSTALL_CLI: "install-cli",
+  QUIT: "quit",
 } as const;
 export type MenuAction = (typeof MENU_ACTION)[keyof typeof MENU_ACTION];
 

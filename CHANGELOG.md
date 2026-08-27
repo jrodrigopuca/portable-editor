@@ -5,6 +5,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/); v
 
 ## [Sin publicar]
 
+### Agregado
+
+- `Cmd/Ctrl+Q` cierra la app (antes no hacía nada, a propósito, para no saltarse el aviso de cambios sin guardar): ahora tiene su propio ítem de menú "Quit" que pasa por el mismo diálogo que el botón rojo de la ventana.
+
 ### Corregido
 
 - Al restaurar la última sesión, un archivo en una carpeta sin permiso concedido en macOS (TCC — Documentos, Escritorio o Descargas) ya no muestra el mismo diálogo de error en cada arranque: se elimina de Recientes igual que un archivo movido o borrado, en vez de reintentarse para siempre.

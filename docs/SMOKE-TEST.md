@@ -8,6 +8,7 @@ Checklist a correr antes de cada release (hasta que exista E2E automatizado). Ti
 - [ ] Escribir texto → aparece el punto de sin-guardar (●) en status bar y título — también visible en Paper / Solarized Light (marrón, no amarillo)
 - [ ] Archivo UTF-8 con LF → la status bar NO muestra "UTF-8" ni "LF" (solo aparecen cuando no son el default)
 - [ ] Con cambios sin guardar, `Mod+N` / `Mod+O` / cerrar → diálogo **Save / Don't Save / Cancel**; Enter = Save (guarda y sigue), Esc = Cancel (no pasa nada), "Don't Save" descarta. En archivo untitled, Save abre "Save as"; cancelarlo = Cancel
+- [ ] `Mod+Q` cierra la app; con cambios sin guardar dispara el mismo diálogo Save/Don't Save/Cancel que el botón rojo — Cancel deja la app abierta. (macOS) confirmar también que aparece "Quit" en el menú `portable-editor`, no en File
 - [ ] Recovery al reabrir tras `kill -9`: tres botones — Enter = "Use recovered", Esc = "Decide later" (abre el disco, el snapshot queda y vuelve a preguntar en el próximo arranque), "Delete recovery" borra
 - [ ] Recargar/reemplazo/binario: botones con verbo ("Reload from disk" / "Keep my changes", "Open" / "Cancel", "Open anyway" / "Cancel"); Enter en "Reload from disk" → Ctrl+Z restaura lo tuyo
 - [ ] (Linux/GTK) Repetir los tres puntos anteriores: mismo orden de botones y mismo default
